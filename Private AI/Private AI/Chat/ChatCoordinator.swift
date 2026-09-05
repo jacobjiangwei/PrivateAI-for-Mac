@@ -20,6 +20,9 @@ final class ChatCoordinator {
     private(set) var pendingAttachments: [ImportedArtifact] = []
     private(set) var isImportingAttachments = false
     private(set) var attachmentError: String?
+    private(set) var executionWorkspace: URL?
+    private(set) var terminalActivity: TerminalActivityState?
+    private(set) var terminalAvailable: Bool
     var draft = ""
 
     let ollama: OllamaServiceController
@@ -28,6 +31,7 @@ final class ChatCoordinator {
     private let agent: ChatAgent
     private let log: RuntimeLog
     private let artifactStore: ManagedArtifactStore
+    private let defaultExecutionWorkspace: URL?
     private var generationTask: Task<Void, Never>?
     private var activeGenerationConversationID: UUID?
     private var attachmentImportTask: Task<Void, Never>?
@@ -39,11 +43,15 @@ final class ChatCoordinator {
         agent = dependencies.agent
         log = dependencies.runtimeLog
         artifactStore = dependencies.artifactStore
+        defaultExecutionWorkspace = dependencies.initialExecutionWorkspace
+        executionWorkspace = dependencies.initialExecutionWorkspace
+        terminalAvailable = dependencies.terminalBackend != nil
         ollama = dependencies.ollama
         reloadConversations()
         Task {
             await ollama.refresh()
             await warmSelectedModel()
+            await runAcceptanceScenarioIfConfigured()
         }
     }
 
@@ -57,6 +65,17 @@ final class ChatCoordinator {
             && ollama.state.isReady
             && !isGenerating
             && !isImportingAttachments
+    }
+
+    var usesCustomExecutionWorkspace: Bool {
+        executionWorkspace?.standardizedFileURL.path
+            != defaultExecutionWorkspace?.standardizedFileURL.path
+    }
+
+    var executionWorkspaceLabel: String {
+        usesCustomExecutionWorkspace
+            ? executionWorkspace?.lastPathComponent ?? "Workspace"
+            : "PrivateAI Workspace"
     }
 
     func newConversation() {
@@ -99,6 +118,24 @@ final class ChatCoordinator {
         panel.message = "Choose up to \(ManagedArtifactStore.maximumFilesPerImport) local documents"
         guard panel.runModal() == .OK else { return }
         _ = importAttachments(from: panel.urls)
+    }
+
+    func chooseExecutionWorkspace() {
+        guard terminalAvailable, !isGenerating, !isImportingAttachments else { return }
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.resolvesAliases = true
+        panel.message = "Choose the folder PrivateAI may use for terminal work"
+        guard panel.runModal() == .OK, let selected = panel.url else { return }
+        executionWorkspace = selected.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    func clearExecutionWorkspace() {
+        guard !isGenerating else { return }
+        executionWorkspace = defaultExecutionWorkspace
     }
 
     @discardableResult
@@ -187,6 +224,7 @@ final class ChatCoordinator {
             Task { await artifactStore.release(sentAttachments) }
             attachmentError = nil
             isGenerating = true
+            terminalActivity = nil
             pendingToolMessageIDs = []
             thinkingMessageID = nil
             generationMetrics.start()
@@ -227,6 +265,7 @@ final class ChatCoordinator {
                         runID: runID,
                         conversationID: conversationID,
                         documentPrivacyMode: documentPrivacyMode,
+                        executionWorkspace: executionWorkspace,
                         managedAttachmentAccess: hasManagedAttachments,
                         authorizedLocalFiles: authorizedLocalFiles,
                     ) { event in
@@ -426,6 +465,9 @@ final class ChatCoordinator {
         case .toolStarted(let name, let arguments):
             completeThinkingMessage(in: conversation)
             activity = "Using \(name)"
+            if name == "terminal" {
+                startTerminalActivity(arguments: arguments)
+            }
             if let toolMessage = try? database.appendMessage(
                 to: conversation,
                 role: .tool,
@@ -464,6 +506,9 @@ final class ChatCoordinator {
         case .toolProgress(_, let detail):
             activity = detail
         case .toolFinished(let execution):
+            if execution.name == "terminal" {
+                finishTerminalActivity(execution)
+            }
             if let toolMessageID = pendingToolMessageIDs.first {
                 pendingToolMessageIDs.removeFirst()
                 if let toolMessage = conversation.messages.first(where: { $0.id == toolMessageID }) {
@@ -528,6 +573,65 @@ final class ChatCoordinator {
         }
         try? database.update(thinkingMessage, status: .complete)
         transcriptRevision += 1
+    }
+
+    private func startTerminalActivity(arguments: [String: JSONValue]) {
+        let action = arguments["action"]?.stringValue ?? "run"
+        let existing = terminalActivity
+        let status = switch action {
+        case "wait": "Waiting for checkpoint"
+        case "stop": "Stopping"
+        default: "Running"
+        }
+        terminalActivity = TerminalActivityState(
+            command: arguments["command"]?.stringValue ?? existing?.command ?? "",
+            workingDirectory: arguments["working_directory"]?.stringValue
+                ?? existing?.workingDirectory
+                ?? executionWorkspace?.path
+                ?? "",
+            status: status,
+            startedAt: action == "run" ? .now : existing?.startedAt ?? .now,
+            observedElapsedSeconds: existing?.observedElapsedSeconds ?? 0,
+            latestOutput: existing?.latestOutput,
+            isActive: true
+        )
+    }
+
+    private func finishTerminalActivity(_ execution: ToolExecution) {
+        guard execution.succeeded,
+              let data = execution.content.data(using: .utf8),
+              let value = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let object = value.objectValue else {
+            terminalActivity?.status = "Failed"
+            terminalActivity?.isActive = false
+            return
+        }
+        let status = object["status"]?.stringValue ?? "failed"
+        let elapsed: Double = if case .number(let value) = object["elapsed_seconds"] {
+            value
+        } else {
+            terminalActivity?.observedElapsedSeconds ?? 0
+        }
+        let output = [
+            object["stderr_since_checkpoint"]?.stringValue,
+            object["stdout_since_checkpoint"]?.stringValue
+        ]
+            .compactMap { $0 }
+            .flatMap { $0.split(whereSeparator: \Character.isNewline) }
+            .last
+            .map { String($0.suffix(300)) }
+        let isActive = status == "running"
+        terminalActivity = TerminalActivityState(
+            command: object["command"]?.stringValue ?? terminalActivity?.command ?? "",
+            workingDirectory: object["working_directory"]?.stringValue
+                ?? terminalActivity?.workingDirectory
+                ?? "",
+            status: status.replacingOccurrences(of: "_", with: " ").capitalized,
+            startedAt: terminalActivity?.startedAt ?? .now.addingTimeInterval(-elapsed),
+            observedElapsedSeconds: elapsed,
+            latestOutput: output ?? terminalActivity?.latestOutput,
+            isActive: isActive
+        )
     }
 
     private func usageData(_ usage: ModelUsage) -> [String: Any] {
@@ -649,6 +753,22 @@ final class ChatCoordinator {
                 "error": String(describing: error)
             ])
         }
+    }
+}
+
+struct TerminalActivityState: Equatable {
+    var command: String
+    var workingDirectory: String
+    var status: String
+    var startedAt: Date
+    var observedElapsedSeconds: Double
+    var latestOutput: String?
+    var isActive: Bool
+
+    func elapsedSeconds(at date: Date) -> Double {
+        isActive
+            ? max(observedElapsedSeconds, date.timeIntervalSince(startedAt))
+            : observedElapsedSeconds
     }
 }
 

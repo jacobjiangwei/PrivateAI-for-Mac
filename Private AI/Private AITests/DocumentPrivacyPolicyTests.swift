@@ -25,6 +25,53 @@ struct DocumentPrivacyPolicyTests {
         #expect(generalNames == ["apple_services", "web"])
     }
 
+    @Test("managed workspace enables terminal by default outside document privacy mode")
+    func terminalCatalogRespectsDocumentPrivacy() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = try RuntimeLog(fileURL: root.appending(path: "app.jsonl"))
+        let backend = TerminalExecutionBackend(
+            workerExecutableURL: root.appending(path: "unused-worker"),
+            logsDirectory: root.appending(path: "execution-logs")
+        )
+        let agent = try ChatAgent(
+            log: log,
+            localResourcesRoot: root,
+            jobsRoot: root.appending(path: "jobs"),
+            terminalBackend: backend,
+            defaultExecutionWorkspace: root
+        )
+
+        let generalNames = try await agent.availableToolNames(
+            documentPrivacyMode: false
+        )
+        let privateNames = try await agent.availableToolNames(
+            documentPrivacyMode: true
+        )
+
+        #expect(generalNames == ["apple_services", "terminal", "web"])
+        #expect(privateNames == ["document_analysis", "local_resources"])
+    }
+
+    @Test("workspace bootstrap requires explicit acceptance mode")
+    func workspaceBootstrapIsNotImplicit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(ExecutionWorkspaceBootstrap.workspace(environment: [:]) == nil)
+        #expect(ExecutionWorkspaceBootstrap.workspace(environment: [
+            "PRIVATEAI_EXECUTION_WORKSPACE": root.path
+        ]) == nil)
+        #expect(ExecutionWorkspaceBootstrap.workspace(environment: [
+            "PRIVATEAI_RUN_TERMINAL_APP_ACCEPTANCE": "1",
+            "PRIVATEAI_EXECUTION_WORKSPACE": root.path
+        ]) == root.standardizedFileURL.resolvingSymlinksInPath())
+    }
+
     @Test("prompt paths authorize only the named local file")
     func promptPathAuthorization() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -123,13 +170,33 @@ struct DocumentPrivacyPolicyTests {
         let prompt = (0..<100).map { "/tmp/missing-\($0).txt" }.joined(separator: " ")
         var probes = 0
 
-        let files = PromptLocalFileResolver.files(in: [prompt, prompt]) { _ in
-            probes += 1
-            return false
-        }
+        let files = PromptLocalFileResolver.files(
+            in: [prompt, prompt],
+            isRegularFile: { _ in
+                probes += 1
+                return false
+            }
+        )
 
         #expect(files.isEmpty)
         #expect(probes <= PromptLocalFileResolver.maximumFileProbes)
+    }
+
+    @Test("absolute executable paths do not enable document privacy mode")
+    func executablePathIsNotDocument() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let extensionlessDocument = root.appending(path: "README")
+        try Data("document".utf8).write(to: extensionlessDocument)
+
+        #expect(PromptLocalFileResolver.files(
+            in: "Run /usr/bin/du -sk in the workspace"
+        ).isEmpty)
+        #expect(PromptLocalFileResolver.files(
+            in: "Read \(extensionlessDocument.path)"
+        ) == [extensionlessDocument.standardizedFileURL.resolvingSymlinksInPath()])
     }
 
     @Test("current prompt takes priority over document history")

@@ -48,22 +48,22 @@ public enum LocalResourcesToolError: Error, Equatable, LocalizedError, Sendable 
 public actor LocalResourcesTool: LLMTool {
     public nonisolated let definition = ToolDefinition(
         function: ToolFunctionDefinition(
-            name: "local_resources",
-            description: "Work with local directories and documents on this Mac. List directory contents, read a bounded range, or search within a document. Use read to identify or preview a document. Use document_analysis instead only for an explicit whole-document summary, review, or comprehensive analysis; do not repeatedly walk every read cursor. Supported documents include Markdown, plain text, HTML, JSON, CSV, XML, YAML, source code, and PDF.",
+            name: PrivateAIToolPrompts.LocalResources.name,
+            description: PrivateAIToolPrompts.LocalResources.tool,
             parameters: objectSchema(
                 properties: [
                     "action": stringSchema(
-                        description: "Operation: list returns directory entries; read returns one bounded range; search finds specific text.",
+                        description: PrivateAIToolPrompts.LocalResources.action,
                         values: ["list", "read", "search"]
                     ),
-                    "path": stringSchema(description: "For an attached document manifest, use its relative path exactly. For a user-entered local path, pass a canonical absolute POSIX path, for example /Users/name/Documents/File Name (1).pdf; convert shell-escaped, quoted, tilde-prefixed, or file:// input to this unescaped absolute form before calling."),
-                    "query": stringSchema(description: "Text to find when action is search."),
-                    "page_start": integerSchema(description: "Optional first PDF page to read or search, one-based and inclusive.", range: 1...100_000),
-                    "page_end": integerSchema(description: "Optional last PDF page to read or search, one-based and inclusive.", range: 1...100_000),
-                    "page_offset": integerSchema(description: "Optional zero-based character offset within page_start when continuing a truncated PDF read.", range: 0...10_000_000),
-                    "character_offset": integerSchema(description: "Optional zero-based character offset when continuing a truncated non-PDF read.", range: 0...10_000_000),
-                    "character_limit": integerSchema(description: "Optional maximum characters to return, bounded by the application.", range: 1...200_000),
-                    "limit": integerSchema(description: "Optional maximum directory entries or search matches.", range: 1...500)
+                    "path": stringSchema(description: PrivateAIToolPrompts.LocalResources.path),
+                    "query": stringSchema(description: PrivateAIToolPrompts.LocalResources.query),
+                    "page_start": integerSchema(description: PrivateAIToolPrompts.LocalResources.pageStart, range: 1...100_000),
+                    "page_end": integerSchema(description: PrivateAIToolPrompts.LocalResources.pageEnd, range: 1...100_000),
+                    "page_offset": integerSchema(description: PrivateAIToolPrompts.LocalResources.pageOffset, range: 0...10_000_000),
+                    "character_offset": integerSchema(description: PrivateAIToolPrompts.LocalResources.characterOffset, range: 0...10_000_000),
+                    "character_limit": integerSchema(description: PrivateAIToolPrompts.LocalResources.characterLimit, range: 1...200_000),
+                    "limit": integerSchema(description: PrivateAIToolPrompts.LocalResources.limit, range: 1...500)
                 ],
                 required: ["action", "path"]
             )

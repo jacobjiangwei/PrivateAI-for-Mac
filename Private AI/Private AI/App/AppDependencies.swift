@@ -1,4 +1,5 @@
 import Foundation
+import PrivateAITools
 import SwiftData
 
 @MainActor
@@ -10,6 +11,8 @@ final class AppDependencies {
     let runtimeDirectory: ManagedRuntimeDirectory
     let runtimeLog: RuntimeLog
     let artifactStore: ManagedArtifactStore
+    let terminalBackend: TerminalExecutionBackend?
+    let initialExecutionWorkspace: URL?
 
     init() throws {
         runtimeDirectory = try ManagedRuntimeDirectory()
@@ -19,6 +22,30 @@ final class AppDependencies {
         )
         runtimeLog = try RuntimeLog(directory: runtimeDirectory)
         artifactStore = try ManagedArtifactStore(root: runtimeDirectory.artifacts)
+        let resolvedTerminalBackend: TerminalExecutionBackend?
+        if let workerExecutable = Self.executionWorkerURL() {
+            resolvedTerminalBackend = TerminalExecutionBackend(
+                workerExecutableURL: workerExecutable,
+                logsDirectory: runtimeDirectory.logs.appending(
+                    path: "execution",
+                    directoryHint: .isDirectory
+                )
+            )
+        } else {
+            resolvedTerminalBackend = nil
+        }
+        terminalBackend = resolvedTerminalBackend
+        #if DEBUG
+        initialExecutionWorkspace = resolvedTerminalBackend == nil
+            ? nil
+            : ExecutionWorkspaceBootstrap.workspace(
+                environment: ProcessInfo.processInfo.environment
+            ) ?? runtimeDirectory.defaultWorkspace
+        #else
+        initialExecutionWorkspace = resolvedTerminalBackend == nil
+            ? nil
+            : runtimeDirectory.defaultWorkspace
+        #endif
         let schema = Schema(versionedSchema: PrivateAISchemaV2.self)
         container = try ModelContainer(
             for: schema,
@@ -29,7 +56,9 @@ final class AppDependencies {
         agent = try ChatAgent(
             log: runtimeLog,
             localResourcesRoot: runtimeDirectory.artifacts,
-            jobsRoot: runtimeDirectory.jobs
+            jobsRoot: runtimeDirectory.jobs,
+            terminalBackend: terminalBackend,
+            defaultExecutionWorkspace: initialExecutionWorkspace
         )
         try database.sanitizeLegacyLocalResourceMessages()
         try database.markInterruptedMessages()
@@ -54,5 +83,37 @@ final class AppDependencies {
                 ])
             }
         }
+    }
+
+    private static func executionWorkerURL() -> URL? {
+        guard let executableDirectory = Bundle.main.executableURL?.deletingLastPathComponent()
+        else {
+            return nil
+        }
+        let worker = executableDirectory.appending(path: "PrivateAIExecutionWorker")
+        return FileManager.default.isExecutableFile(atPath: worker.path) ? worker : nil
+    }
+
+}
+
+nonisolated enum ExecutionWorkspaceBootstrap {
+    static func workspace(
+        environment: [String: String],
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard environment["PRIVATEAI_RUN_TERMINAL_APP_ACCEPTANCE"] == "1",
+              let path = environment["PRIVATEAI_EXECUTION_WORKSPACE"] else {
+            return nil
+        }
+        let workspace = URL(fileURLWithPath: path, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard workspace.path != "/",
+              fileManager.fileExists(atPath: workspace.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
+        }
+        return workspace
     }
 }

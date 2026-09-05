@@ -173,6 +173,48 @@ struct ToolRuntimeTests {
         #expect(String(data: Data(execution.content.utf8), encoding: .utf8) == execution.content)
     }
 
+    @Test("keeps oversized structured output as valid bounded JSON")
+    func truncatesJSONAsJSON() async throws {
+        let limit = 128
+        let runtime = try ToolRuntime(
+            tools: [OversizedJSONTool()],
+            outputLimitBytes: limit
+        )
+        let execution = await runtime.execute(ToolCall(function: ToolFunctionCall(
+            name: "oversized_json",
+            arguments: [:]
+        )))
+
+        #expect(execution.succeeded)
+        #expect(execution.content.utf8.count <= limit)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(execution.content.utf8))
+                as? [String: Any]
+        )
+        #expect(object["output_truncated"] as? Bool == true)
+    }
+
+    @Test("preserves error identity when structured failures are truncated again")
+    func truncatesErrorJSONWithIdentity() throws {
+        let content = String(decoding: try JSONSerialization.data(
+            withJSONObject: [
+                "error": "tool_failed",
+                "message": String(repeating: "failure detail ", count: 200)
+            ],
+            options: [.sortedKeys]
+        ), as: UTF8.self)
+
+        let bounded = ToolRuntime.boundedContent(content, limitBytes: 128)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: Data(bounded.utf8)) as? [String: Any]
+        )
+
+        #expect(bounded.utf8.count <= 128)
+        #expect(object["error"] as? String == "tool_failed")
+        #expect(object["output_truncated"] as? Bool == true)
+        #expect(object["content_tail"] == nil)
+    }
+
     @Test("leaves output within the limit unchanged")
     func keepsSmallOutput() async throws {
         let runtime = try ToolRuntime(tools: [TestTool()], outputLimitBytes: 1_024)
@@ -203,6 +245,22 @@ struct ToolRuntimeTests {
         #expect(diagnostics[0].event == "tool.phase")
         #expect(diagnostics[0].level == "warning")
         #expect(diagnostics[0].data == ["status": "waiting"])
+    }
+
+    @Test("runs tool cleanup outside caller cancellation")
+    func cancellationIndependentCleanup() async throws {
+        let tool = CleanupCancellationProbeTool()
+        let runtime = try ToolRuntime(tools: [tool])
+        let cleanup = Task {
+            try? await ContinuousClock().sleep(for: .seconds(30))
+            await runtime.cancelAll()
+        }
+        cleanup.cancel()
+
+        await cleanup.value
+
+        #expect(await tool.cleanupWasCalled)
+        #expect(await tool.cleanupObservedCancellation == false)
     }
 }
 
@@ -256,6 +314,25 @@ private actor DiagnosticRecorder {
     }
 }
 
+private actor CleanupCancellationProbeTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "cleanup_cancellation_probe",
+            description: "Records cleanup cancellation state.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+    private(set) var cleanupWasCalled = false
+    private(set) var cleanupObservedCancellation = false
+
+    func cancelAll() {
+        cleanupWasCalled = true
+        cleanupObservedCancellation = Task.isCancelled
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String { "{}" }
+}
+
 private actor OversizedTool: LLMTool {
     nonisolated let definition = ToolDefinition(
         function: ToolFunctionDefinition(
@@ -268,6 +345,23 @@ private actor OversizedTool: LLMTool {
     func execute(arguments: [String: JSONValue]) async throws -> String {
         // Multibyte characters make the truncation boundary meaningful.
         String(repeating: "苏", count: 200)
+    }
+}
+
+private actor OversizedJSONTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "oversized_json",
+            description: "Returns oversized structured output.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "items": Array(repeating: "structured-output", count: 200)
+        ])
+        return String(decoding: data, as: UTF8.self)
     }
 }
 

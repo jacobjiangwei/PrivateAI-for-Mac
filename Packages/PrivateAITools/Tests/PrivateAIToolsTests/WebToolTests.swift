@@ -30,7 +30,11 @@ struct WebToolTests {
     }
 }
 
-@Suite("Live Web Tool", .serialized)
+@Suite(
+    "Live Web Tool",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_LIVE_WEB_TESTS"] == "1")
+)
 struct LiveWebToolTests {
     @Test("fetches and extracts a real public page")
     func fetch() async throws {

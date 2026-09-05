@@ -13,6 +13,13 @@ struct ChatDetailView: View {
                 Divider()
             }
             header
+            if coordinator.isGenerating, let terminal = coordinator.terminalActivity {
+                Divider()
+                TerminalActivityView(
+                    activity: terminal,
+                    onStop: coordinator.stop
+                )
+            }
             Divider()
             if coordinator.selectedConversation == nil {
                 ContentUnavailableView(
@@ -64,6 +71,7 @@ struct ChatDetailView: View {
                 .popover(isPresented: $showsModelDetails, arrowEdge: .bottom) {
                     ModelTransparencyView(coordinator: coordinator)
                 }
+                workspaceMenu
             }
             Spacer()
             if !coordinator.activity.isEmpty {
@@ -77,11 +85,92 @@ struct ChatDetailView: View {
         .frame(height: InterfaceMetrics.headerHeight)
     }
 
+    private var workspaceMenu: some View {
+        Menu {
+            Button("Choose Folder…", systemImage: "folder.badge.plus") {
+                coordinator.chooseExecutionWorkspace()
+            }
+            if coordinator.usesCustomExecutionWorkspace {
+                Button("Use PrivateAI Workspace", systemImage: "arrow.uturn.backward") {
+                    coordinator.clearExecutionWorkspace()
+                }
+            }
+        } label: {
+            Label(
+                coordinator.executionWorkspaceLabel,
+                systemImage: coordinator.usesCustomExecutionWorkspace
+                    ? "folder.fill"
+                    : "terminal.fill"
+            )
+            .lineLimit(1)
+        }
+        .frame(maxWidth: 180)
+        .disabled(coordinator.isGenerating || !coordinator.terminalAvailable)
+        .accessibilityIdentifier("execution.workspace.menu")
+        .help(coordinator.terminalAvailable
+            ? coordinator.executionWorkspace?.path ?? "Managed terminal unavailable"
+            : "Terminal worker unavailable")
+    }
+
     private var modelSelection: Binding<String> {
         Binding(
             get: { coordinator.ollama.selectedModel },
             set: { coordinator.selectModel($0) }
         )
+    }
+}
+
+private struct TerminalActivityView: View {
+    let activity: TerminalActivityState
+    let onStop: () -> Void
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            HStack(spacing: InterfaceMetrics.spacingM) {
+                Image(systemName: "terminal.fill")
+                    .foregroundStyle(activity.isActive ? Color.accentColor : .secondary)
+                    .frame(width: InterfaceMetrics.controlHeight)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: InterfaceMetrics.spacingS) {
+                        Text(activity.status)
+                            .font(.caption.weight(.semibold))
+                        Text(activity.elapsedSeconds(at: context.date), format: .number.precision(
+                            .fractionLength(0)
+                        ))
+                        .font(.caption.monospacedDigit())
+                        Text("s")
+                            .font(.caption)
+                    }
+                    Text(activity.command)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                    Text(activity.latestOutput ?? activity.workingDirectory)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if activity.isActive {
+                    Button(action: onStop) {
+                        Image(systemName: "stop.fill")
+                            .frame(
+                                width: InterfaceMetrics.controlHeight,
+                                height: InterfaceMetrics.controlHeight
+                            )
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                    .help("Stop terminal job")
+                    .accessibilityIdentifier("terminal.activity.stop")
+                }
+            }
+            .padding(.horizontal, InterfaceMetrics.pageHorizontalPadding)
+            .padding(.vertical, InterfaceMetrics.spacingS)
+            .frame(minHeight: 68)
+            .background(.background.secondary)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("terminal.activity")
+        }
     }
 }
 

@@ -3,7 +3,11 @@ import LLMCore
 import Testing
 @testable import PrivateAITools
 
-@Suite("Live Ollama Apple Services", .serialized)
+@Suite(
+    "Live Ollama Apple Services",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+)
 struct LiveOllamaAppleServicesTests {
     @Test("model reports the real Mac platform and processor count")
     func deviceInformationThroughAgentLoop() async throws {

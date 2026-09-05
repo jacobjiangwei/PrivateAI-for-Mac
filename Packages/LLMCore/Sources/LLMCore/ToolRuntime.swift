@@ -11,6 +11,8 @@ public protocol LLMTool: Sendable {
         _ arguments: [String: JSONValue]
     ) -> [String: JSONValue]?
     func successfulResultReuseKey(arguments: [String: JSONValue]) -> String?
+    func toolCallBudgetCost(arguments: [String: JSONValue]) -> Int
+    func cancelAll() async
     func execute(arguments: [String: JSONValue]) async throws -> String
 }
 
@@ -35,6 +37,12 @@ public extension LLMTool {
     func successfulResultReuseKey(arguments: [String: JSONValue]) -> String? {
         nil
     }
+
+    func toolCallBudgetCost(arguments: [String: JSONValue]) -> Int {
+        1
+    }
+
+    func cancelAll() async {}
 }
 
 public enum ToolRuntimeError: Error, Equatable, LocalizedError, Sendable {
@@ -159,6 +167,22 @@ public actor ToolRuntime {
         )
     }
 
+    public func toolCallBudgetCost(_ call: ToolCall) -> Int {
+        guard let tool = tools[call.function.name] else { return 1 }
+        return max(0, tool.toolCallBudgetCost(arguments: call.function.arguments))
+    }
+
+    public func cancelAll() async {
+        let cleanupTasks = tools.values.map { tool in
+            Task.detached {
+                await tool.cancelAll()
+            }
+        }
+        for task in cleanupTasks {
+            await task.value
+        }
+    }
+
     public func execute(_ call: ToolCall) async -> ToolExecution {
         let name = call.function.name
         guard let tool = tools[name] else {
@@ -245,6 +269,10 @@ public actor ToolRuntime {
         guard content.lengthOfBytes(using: .utf8) > limitBytes else {
             return content
         }
+        if let data = content.data(using: .utf8),
+           (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return boundedJSONContent(content, limitBytes: limitBytes)
+        }
         let marker = "\n…[truncated]"
         let budget = max(0, limitBytes - marker.lengthOfBytes(using: .utf8))
         var truncated = content
@@ -252,6 +280,49 @@ public actor ToolRuntime {
             truncated.removeLast()
         }
         return truncated + marker
+    }
+
+    private static func boundedJSONContent(
+        _ content: String,
+        limitBytes: Int
+    ) -> String {
+        let original = content.data(using: .utf8).flatMap {
+            try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+        }
+        let originalError = original?["error"] as? String
+        let originalMessage = original?["message"] as? String
+
+        func encoded(_ tail: String) -> Data? {
+            var object: [String: Any] = ["output_truncated": true]
+            if let originalError {
+                object["error"] = originalError
+                object["message"] = tail
+            } else {
+                object["content_tail"] = tail
+            }
+            return try? JSONSerialization.data(
+                withJSONObject: object,
+                options: [.sortedKeys, .withoutEscapingSlashes]
+            )
+        }
+        var tail = originalError == nil ? content : originalMessage ?? ""
+        while !tail.isEmpty {
+            if let data = encoded(tail), data.count <= limitBytes {
+                return String(decoding: data, as: UTF8.self)
+            }
+            tail.removeFirst(max(1, tail.count / 4))
+        }
+        if let originalError,
+           let data = try? JSONSerialization.data(
+                withJSONObject: [
+                    "error": originalError,
+                    "output_truncated": true
+                ],
+                options: [.sortedKeys, .withoutEscapingSlashes]
+           ), data.count <= limitBytes {
+            return String(decoding: data, as: UTF8.self)
+        }
+        return "{\"output_truncated\":true}"
     }
 }
 

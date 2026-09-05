@@ -31,12 +31,12 @@ public enum AppleServicesToolError: Error, Equatable, LocalizedError, Sendable {
 public actor AppleServicesTool: LLMTool {
     public nonisolated let definition = ToolDefinition(
         function: ToolFunctionDefinition(
-            name: "apple_services",
-            description: "Use native macOS services for device, locale, time zone, storage, power, network, permissions, location with reverse-geocoded city and district, MapKit places, calendars, reminders, contacts, notifications, or opening a user-visible URL.",
+            name: PrivateAIToolPrompts.AppleServices.name,
+            description: PrivateAIToolPrompts.AppleServices.tool,
             parameters: objectSchema(
                 properties: [
                     "action": stringSchema(
-                        description: "Native macOS operation.",
+                        description: PrivateAIToolPrompts.AppleServices.action,
                         values: [
                             "device_info", "locale_info", "time_zone", "storage_info",
                             "power_status", "network_status", "authorization_status",
@@ -45,12 +45,12 @@ public actor AppleServicesTool: LLMTool {
                             "notification_status", "open_url"
                         ]
                     ),
-                    "query": stringSchema(description: "Search text for places or contacts."),
-                    "latitude": numberSchema(description: "Map search center latitude.", range: -90...90),
-                    "longitude": numberSchema(description: "Map search center longitude.", range: -180...180),
-                    "radius_meters": integerSchema(description: "Map search radius.", range: 100...50_000),
-                    "limit": integerSchema(description: "Maximum returned records.", range: 1...50),
-                    "url": stringSchema(description: "HTTPS URL to open in the user's default application.")
+                    "query": stringSchema(description: PrivateAIToolPrompts.AppleServices.query),
+                    "latitude": numberSchema(description: PrivateAIToolPrompts.AppleServices.latitude, range: -90...90),
+                    "longitude": numberSchema(description: PrivateAIToolPrompts.AppleServices.longitude, range: -180...180),
+                    "radius_meters": integerSchema(description: PrivateAIToolPrompts.AppleServices.radiusMeters, range: 100...50_000),
+                    "limit": integerSchema(description: PrivateAIToolPrompts.AppleServices.limit, range: 1...50),
+                    "url": stringSchema(description: PrivateAIToolPrompts.AppleServices.url)
                 ],
                 required: ["action"]
             )

@@ -35,6 +35,31 @@ See [Document Attachments](docs/product/document-attachments.md) for the verifie
 - Available native actions also cover location and MapKit place search, calendar and reminder-list access, contact search, notification status, and opening a user-visible HTTPS URL.
 - Protected macOS actions remain subject to the App's real authorization state and system permission prompts. Their current App-hosted end-to-end coverage is incomplete, so availability on a particular Mac must be confirmed by a successful Tool result rather than inferred from the catalog.
 
+### Run non-interactive terminal work
+
+- Ordinary conversations receive the `terminal` capability automatically when the
+	signed worker is available. Commands start in the App-managed
+	`~/.privateAI/workspaces/default` directory.
+- Choose a folder from the conversation header only when a task needs a different
+	filesystem root. Returning to the PrivateAI workspace keeps terminal available.
+- Run general `/bin/zsh -dfc` commands, network and process diagnostics, builds, tests,
+	scripts, pipelines, and package managers. Commands remain visible with working
+	directory, elapsed time, checkpoint status, and Stop.
+- Commands that remain active return a bounded checkpoint after 60 seconds by default;
+	stdout and stderr continue draining to bounded local logs without waking the model
+	for every line.
+- Cancellation, timeout, App shutdown, worker failure, and transport timeout terminate
+	the recorded process group. Document privacy mode does not expose terminal.
+- Phase 1 does not run self-daemonizing or detached persistent processes. Commands must
+	remain attached to the supervised job; persistent servers require a later explicit
+	lifecycle and isolation design.
+- Interactive PTY applications, secret input, and structured coding-file edit Tools are
+	not implemented yet. The current terminal phase is not full Copilot-style coding
+	agent parity.
+
+See [Terminal Execution Design](docs/product/terminal-execution-design.md) for verified
+limits, acceptance evidence, and the remaining implementation phases.
+
 ## Requirements
 
 - macOS and an Xcode version that support the SDK and deployment target configured in the project

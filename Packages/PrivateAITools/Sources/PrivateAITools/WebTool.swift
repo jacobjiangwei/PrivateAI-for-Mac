@@ -34,18 +34,18 @@ public enum WebToolError: Error, Equatable, LocalizedError, Sendable {
 public actor WebTool: LLMTool {
     public let definition = ToolDefinition(
         function: ToolFunctionDefinition(
-            name: "web",
-            description: "Search current public information or fetch a known public HTTPS page. Use search for current facts, news, weather, videos, products, places, or sources.",
+            name: PrivateAIToolPrompts.Web.name,
+            description: PrivateAIToolPrompts.Web.tool,
             parameters: objectSchema(
                 properties: [
                     "action": stringSchema(
-                        description: "Operation to perform.",
+                        description: PrivateAIToolPrompts.Web.action,
                         values: ["search", "fetch"]
                     ),
-                    "query": stringSchema(description: "Search query for the search action."),
-                    "url": stringSchema(description: "Public HTTPS URL for the fetch action."),
+                    "query": stringSchema(description: PrivateAIToolPrompts.Web.query),
+                    "url": stringSchema(description: PrivateAIToolPrompts.Web.url),
                     "maximum_results": integerSchema(
-                        description: "Maximum search results to return.",
+                        description: PrivateAIToolPrompts.Web.maximumResults,
                         range: 1...10
                     )
                 ],

@@ -80,6 +80,143 @@ struct AgentRuntimeTests {
         #expect(requests[1].messages.last?.content.contains("24") == true)
     }
 
+    @Test("corrects a thinking-only final round without tools or thinking")
+    func correctsThinkingOnlyFinalResponse() async throws {
+        let call = ToolCall(function: ToolFunctionCall(
+            name: "web",
+            arguments: [
+                "action": .string("search"),
+                "query": .string("measured result")
+            ]
+        ))
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [
+                .thinking(String(repeating: "analysis ", count: 256)),
+                .completed(ModelUsage(outputTokenCount: 2_048))
+            ],
+            [.text("Final answer from real evidence."), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [FixtureTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                think: true,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Use the measured result")
+        let requests = await provider.recordedRequests
+
+        #expect(result.text == "Final answer from real evidence.")
+        #expect(result.performance.modelRequestCount == 3)
+        #expect(requests[1].think)
+        #expect(requests[2].tools.isEmpty)
+        #expect(!requests[2].think)
+        #expect(requests[2].messages.contains {
+            $0.role == .user && $0.content.contains("complete user-visible final answer")
+        })
+        #expect(requests[2].messages.contains {
+            $0.role == .tool && $0.content.contains("temperature_celsius")
+        })
+    }
+
+    @Test("corrects a nonempty final answer truncated by the model limit")
+    func correctsTruncatedFinalResponse() async throws {
+        let call = ToolCall(function: ToolFunctionCall(
+            name: "web",
+            arguments: [
+                "action": .string("search"),
+                "query": .string("measured result")
+            ]
+        ))
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [
+                .text("Partial table without the requested conclusion"),
+                .completed(ModelUsage(
+                    outputTokenCount: 2_048,
+                    finishReason: "length"
+                ))
+            ],
+            [.text("RESULT_PATH=/measured\nRESULT_BYTES=42"), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [FixtureTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                think: true,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Return the measured result")
+        let requests = await provider.recordedRequests
+
+        #expect(result.text == "RESULT_PATH=/measured\nRESULT_BYTES=42")
+        #expect(requests.count == 3)
+        #expect(requests[2].tools.isEmpty)
+        #expect(!requests[2].think)
+        #expect(requests[2].messages.contains {
+            $0.role == .assistant
+                && $0.content == "Partial table without the requested conclusion"
+        })
+    }
+
+    @Test("fails instead of accepting a second truncated final response")
+    func rejectsRepeatedTruncatedFinalResponse() async throws {
+        let provider = ScriptedProvider(responses: [
+            [
+                .text("First partial answer"),
+                .completed(ModelUsage(outputTokenCount: 2_048, finishReason: "length"))
+            ],
+            [
+                .text("Second partial answer"),
+                .completed(ModelUsage(outputTokenCount: 2_048, finishReason: "length"))
+            ]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: []),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                think: true,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        await #expect(throws: AgentRuntimeError.incompleteFinalResponse) {
+            try await runtime.run(prompt: "Answer completely")
+        }
+    }
+
+    @Test("fails instead of completing with an empty corrected response")
+    func rejectsEmptyCorrectedFinalResponse() async throws {
+        let provider = ScriptedProvider(responses: [
+            [.thinking("analysis"), .completed(ModelUsage())],
+            [.completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: []),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                think: true,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        await #expect(throws: AgentRuntimeError.emptyFinalResponse) {
+            try await runtime.run(prompt: "Answer visibly")
+        }
+        let requests = await provider.recordedRequests
+        #expect(requests.count == 2)
+        #expect(!requests[1].think)
+    }
+
     @Test("returns unknown tool failures to the model without executing them")
     func containsUnknownTool() async throws {
         let call = ToolCall(
@@ -115,6 +252,51 @@ struct AgentRuntimeTests {
             try await runtime.run(prompt: "  \n")
         }
         #expect(await provider.recordedRequests.isEmpty)
+    }
+
+    @Test("cleans up tools when a provider request fails")
+    func cleansUpToolsOnFailure() async throws {
+        let tool = CleanupProbeTool()
+        let runtime = AgentRuntime(
+            provider: FailingProvider(),
+            toolRuntime: try ToolRuntime(tools: [tool]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                automaticallyWarmsUp: false
+            )
+        )
+
+        await #expect(throws: FixtureProviderError.failed) {
+            try await runtime.run(prompt: "Trigger a provider failure")
+        }
+        #expect(await tool.cleanupCount == 1)
+    }
+
+    @Test("honors cancellation while final tool cleanup is in progress")
+    func cancellationDuringFinalCleanup() async throws {
+        let tool = BlockingCleanupTool()
+        let provider = ScriptedProvider(responses: [
+            [.text("Do not commit this answer"), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [tool]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                automaticallyWarmsUp: false
+            )
+        )
+        let run = Task {
+            try await runtime.run(prompt: "Wait for cancellation")
+        }
+        await tool.waitUntilCleanupStarted()
+
+        run.cancel()
+        await tool.releaseCleanup()
+
+        await #expect(throws: CancellationError.self) {
+            try await run.value
+        }
     }
 
     @Test("includes prior conversation messages before the new user prompt")
@@ -171,6 +353,77 @@ struct AgentRuntimeTests {
         #expect(await tool.executionCount == 0)
     }
 
+    @Test("default configuration does not impose a fixed tool-call quota")
+    func defaultConfigurationAllowsMoreThanLegacyToolCallQuota() async throws {
+        func calls(in range: Range<Int>) -> [ToolCall] {
+            range.map { index in
+                ToolCall(function: ToolFunctionCall(
+                    name: "web",
+                    arguments: [
+                        "action": .string("search"),
+                        "query": .string("query \(index)")
+                    ]
+                ))
+            }
+        }
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls(calls(in: 0..<5)), .completed(ModelUsage())],
+            [.toolCalls(calls(in: 5..<10)), .completed(ModelUsage())],
+            [.text("Completed after ten calls."), .completed(ModelUsage())]
+        ])
+        let tool = RecordingTool()
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [tool]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Research ten sources")
+
+        #expect(result.text == "Completed after ten calls.")
+        #expect(result.performance.toolCallCount == 10)
+        #expect(await tool.executionCount == 10)
+    }
+
+    @Test("tool round limit finalizes without reporting a call budget")
+    func toolRoundLimitUsesAccurateFinalizationInstruction() async throws {
+        let call = ToolCall(function: ToolFunctionCall(
+            name: "web",
+            arguments: [
+                "action": .string("search"),
+                "query": .string("bounded research")
+            ]
+        ))
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [.text("Final answer from one round."), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [RecordingTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                maximumToolRounds: 1,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Research this")
+        let requests = await provider.recordedRequests
+
+        #expect(result.text == "Final answer from one round.")
+        #expect(requests.count == 2)
+        #expect(requests[1].tools.isEmpty)
+        #expect(requests[1].messages.contains {
+            $0.role == .user
+                && $0.content.contains("tool-execution round limit")
+                && !$0.content.contains("tool-call budget")
+        })
+    }
+
     @Test("finalizes instead of failing after exhausting the total tool budget")
     func finalizesAfterToolBudgetExhaustion() async throws {
         let calls = (0..<9).map { offset in
@@ -203,7 +456,7 @@ struct AgentRuntimeTests {
         #expect(result.performance.toolCallCount == 8)
         #expect(await tool.executionCount == 8)
         #expect(requests.count == 10)
-        #expect(requests[8].tools.isEmpty)
+        #expect(!requests[8].tools.isEmpty)
         #expect(requests[9].tools.isEmpty)
         #expect(requests[9].messages.contains {
             $0.role == .user
@@ -246,6 +499,42 @@ struct AgentRuntimeTests {
         #expect(result.performance.toolCallCount == 1)
     }
 
+    @Test("lifecycle observations do not exhaust the work tool budget")
+    func lifecycleCallsUseNoWorkBudget() async throws {
+        let calls = [
+            ToolCall(function: ToolFunctionCall(
+                name: "budgeted_job",
+                arguments: ["action": .string("run")]
+            )),
+            ToolCall(function: ToolFunctionCall(
+                name: "budgeted_job",
+                arguments: ["action": .string("wait")]
+            )),
+            ToolCall(function: ToolFunctionCall(
+                name: "budgeted_job",
+                arguments: ["action": .string("wait")]
+            ))
+        ]
+        let provider = ScriptedProvider(responses: calls.map {
+            [.toolCalls([$0]), .completed(ModelUsage())]
+        } + [[.text("Job completed."), .completed(ModelUsage())]])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [BudgetedJobTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                maximumToolRounds: 4,
+                maximumToolCallsTotal: 1,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Run the long job")
+
+        #expect(result.text == "Job completed.")
+        #expect(result.performance.toolCallCount == 3)
+    }
+
     @Test("executes tool calls from one model response concurrently")
     func executesParallelToolBatch() async throws {
         let calls = [
@@ -270,6 +559,143 @@ struct AgentRuntimeTests {
         #expect(result.text == "done")
         #expect(maximumConcurrency == 2)
         #expect(requests[1].messages.suffix(2).map(\.content) == ["first", "second"])
+    }
+
+    @Test("continues after two large concurrent Tool results")
+    func boundsConcurrentToolEvidence() async throws {
+        let calls = [
+            ToolCall(function: ToolFunctionCall(
+                index: 0,
+                name: "large_probe",
+                arguments: ["value": .string("first")]
+            )),
+            ToolCall(function: ToolFunctionCall(
+                index: 1,
+                name: "large_probe",
+                arguments: ["value": .string("second")]
+            ))
+        ]
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls(calls), .completed(ModelUsage())],
+            [.text("done from bounded evidence"), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [LargeParallelProbeTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                options: ModelOptions(numContext: 8_192),
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Compare both large results")
+        let requests = await provider.recordedRequests
+        let toolMessages = requests[1].messages.filter { $0.role == .tool }
+
+        #expect(result.text == "done from bounded evidence")
+        #expect(toolMessages.count == 2)
+        for message in toolMessages {
+            let value = try JSONDecoder().decode(
+                JSONValue.self,
+                from: Data(message.content.utf8)
+            )
+            #expect(value.objectValue?["output_truncated"] == .bool(true))
+        }
+        #expect(
+            trimMessagesToBudget(requests[1].messages, budgetBytes: 14_745)
+                .requiredBytesExceededBudget == false
+        )
+    }
+
+    @Test("continues after two large serial Tool result batches")
+    func boundsSerialToolEvidence() async throws {
+        let calls = [
+            ToolCall(function: ToolFunctionCall(
+                index: 0,
+                name: "large_probe",
+                arguments: ["value": .string("first")]
+            )),
+            ToolCall(function: ToolFunctionCall(
+                index: 1,
+                name: "large_probe",
+                arguments: ["value": .string("second")]
+            ))
+        ]
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls(calls), .completed(ModelUsage())],
+            [.text("serial evidence bounded"), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [
+                LargeParallelProbeTool(concurrencySafe: false)
+            ]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                options: ModelOptions(numContext: 8_192),
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(prompt: "Compare serial large results")
+        let requests = await provider.recordedRequests
+        let toolMessages = requests[1].messages.filter { $0.role == .tool }
+
+        #expect(result.text == "serial evidence bounded")
+        #expect(toolMessages.count == 2)
+        #expect(toolMessages.allSatisfy { $0.content.contains("output_truncated") })
+        #expect(
+            trimMessagesToBudget(requests[1].messages, budgetBytes: 14_745)
+                .requiredBytesExceededBudget == false
+        )
+    }
+
+    @Test("completes after search results followed by two large page fetches")
+    func completesObservedWebSequence() async throws {
+        func call(index: Int, action: String, value: String) -> ToolCall {
+            ToolCall(function: ToolFunctionCall(
+                index: index,
+                name: "web_fixture",
+                arguments: [
+                    "action": .string(action),
+                    action == "search" ? "query" : "url": .string(value)
+                ]
+            ))
+        }
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([
+                call(index: 0, action: "search", value: "popular small models"),
+                call(index: 1, action: "search", value: "best local models")
+            ]), .completed(ModelUsage())],
+            [.toolCalls([
+                call(index: 0, action: "fetch", value: "https://one.example"),
+                call(index: 1, action: "fetch", value: "https://two.example")
+            ]), .completed(ModelUsage())],
+            [.text("Completed from bounded web evidence."), .completed(ModelUsage())]
+        ])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [ObservedWebSequenceTool()]),
+            configuration: AgentConfiguration(
+                model: "fixture",
+                options: ModelOptions(numContext: 8_192),
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(
+            prompt: "我听说有很多小 uncensored 的版本，我想找一个最火的版本，本地下载下来试试看"
+        )
+        let requests = await provider.recordedRequests
+        let finalRequestToolMessages = requests[2].messages.filter { $0.role == .tool }
+
+        #expect(result.text == "Completed from bounded web evidence.")
+        #expect(requests.count == 3)
+        #expect(finalRequestToolMessages.count == 2)
+        #expect(finalRequestToolMessages.allSatisfy {
+            $0.content.contains("output_truncated")
+        })
     }
 
     @Test("executes tools serially unless the implementation opts into concurrency")
@@ -557,6 +983,41 @@ struct AgentRuntimeTests {
         #expect(await tool.executedTasks == ["Task A", "Task B", "Task A"])
     }
 
+    @Test("does not reuse a prior cached scope for duplicates in a later round")
+    func priorCacheDoesNotSatisfyLaterDuplicates() async throws {
+        let first = ToolCall(function: ToolFunctionCall(
+            name: "stable_task",
+            arguments: [
+                "path": .string("document.pdf"),
+                "task": .string("Initial task")
+            ]
+        ))
+        let duplicates = ["Later A", "Later B"].map { task in
+            ToolCall(function: ToolFunctionCall(
+                name: "stable_task",
+                arguments: [
+                    "path": .string("document.pdf"),
+                    "task": .string(task)
+                ]
+            ))
+        }
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([first]), .completed(ModelUsage())],
+            [.toolCalls(duplicates), .completed(ModelUsage())],
+            [.text("done"), .completed(ModelUsage())]
+        ])
+        let tool = StableTaskTool()
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [tool]),
+            configuration: AgentConfiguration(model: "fixture", automaticallyWarmsUp: false)
+        )
+
+        _ = try await runtime.run(prompt: "Analyze the document")
+
+        #expect(await tool.executedTasks == ["Initial task", "Later A", "Later B"])
+    }
+
     @Test("does not let an ambiguous success intercept a failed task retry")
     func ambiguousSuccessDoesNotInterceptRetry() async throws {
         let calls = ["Task A", "Task B"].map { task in
@@ -609,6 +1070,66 @@ private actor RecordingTool: LLMTool {
         executionCount += 1
         return "{}"
     }
+}
+
+private actor BudgetedJobTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "budgeted_job",
+            description: "Fixture long-running job.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+
+    nonisolated func toolCallBudgetCost(arguments: [String: JSONValue]) -> Int {
+        arguments["action"] == .string("run") ? 1 : 0
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        "{}"
+    }
+}
+
+private actor CleanupProbeTool: LLMTool {
+    nonisolated let definition = fixtureToolDefinition
+    private(set) var cleanupCount = 0
+
+    func cancelAll() {
+        cleanupCount += 1
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        "{}"
+    }
+}
+
+private actor BlockingCleanupTool: LLMTool {
+    nonisolated let definition = fixtureToolDefinition
+    private var cleanupStarted = false
+    private var cleanupReleased = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func cancelAll() async {
+        cleanupStarted = true
+        for waiter in startWaiters { waiter.resume() }
+        startWaiters.removeAll()
+        guard !cleanupReleased else { return }
+        await withCheckedContinuation { releaseWaiters.append($0) }
+    }
+
+    func waitUntilCleanupStarted() async {
+        guard !cleanupStarted else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releaseCleanup() {
+        cleanupReleased = true
+        for waiter in releaseWaiters { waiter.resume() }
+        releaseWaiters.removeAll()
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String { "{}" }
 }
 
 private actor RecordingDocumentTool: LLMTool {
@@ -708,6 +1229,66 @@ private actor ParallelProbeTool: LLMTool {
         try await ContinuousClock().sleep(for: .milliseconds(100))
         activeCount -= 1
         return arguments["value"]?.stringValue ?? ""
+    }
+}
+
+private actor LargeParallelProbeTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "large_probe",
+            description: "Returns large structured evidence.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+    nonisolated let concurrencySafe: Bool
+
+    init(concurrencySafe: Bool = true) {
+        self.concurrencySafe = concurrencySafe
+    }
+
+    nonisolated func isConcurrencySafe(arguments: [String: JSONValue]) -> Bool {
+        concurrencySafe
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        let marker = arguments["value"]?.stringValue ?? "value"
+        let value = JSONValue.object([
+            "marker": .string(marker),
+            "text": .string(String(repeating: marker, count: 8_000))
+        ])
+        return String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
+    }
+}
+
+private actor ObservedWebSequenceTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "web_fixture",
+            description: "Returns deterministic web evidence sizes.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+
+    nonisolated func isConcurrencySafe(arguments: [String: JSONValue]) -> Bool {
+        true
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        let action = arguments["action"]?.stringValue
+        let marker = arguments["query"]?.stringValue
+            ?? arguments["url"]?.stringValue
+            ?? "value"
+        let count: Int
+        if action == "search" {
+            count = marker.contains("popular") ? 3_664 : 3_967
+        } else {
+            count = marker.contains("one.example") ? 13_431 : 15_724
+        }
+        let value = JSONValue.object([
+            "marker": .string(marker),
+            "text": .string(String(repeating: "x", count: count))
+        ])
+        return String(decoding: try JSONEncoder().encode(value), as: UTF8.self)
     }
 }
 
@@ -826,5 +1407,25 @@ private actor ScriptedProvider: ModelProvider {
             }
             continuation.finish()
         }
+    }
+}
+
+private enum FixtureProviderError: Error {
+    case failed
+}
+
+private struct FailingProvider: ModelProvider {
+    func warmUp(
+        model: String,
+        keepAlive: String,
+        options: ModelOptions
+    ) async throws -> WarmupMetrics {
+        throw FixtureProviderError.failed
+    }
+
+    func stream(
+        _ request: ModelRequest
+    ) async throws -> AsyncThrowingStream<ModelStreamEvent, any Error> {
+        throw FixtureProviderError.failed
     }
 }

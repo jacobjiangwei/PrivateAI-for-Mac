@@ -1,6 +1,24 @@
 {
-  "originHash" : "1b68a0e2c7dedf330d1ac3bc10bac76fb35ab6e2734a3904f3b8a82fe32e054a",
+  "originHash" : "83396cfa89749d7b3d1be41549cf896ce1dd1d95f1c407c04b44cc40cc9d9111",
   "pins" : [
+    {
+      "identity" : "swift-subprocess",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-subprocess.git",
+      "state" : {
+        "revision" : "b3937ab85dd32f6e9435914599c1519074769c1a",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "swift-system",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-system",
+      "state" : {
+        "revision" : "869129b7bf4ecc57b97d0193ad29690ca2134750",
+        "version" : "1.8.1"
+      }
+    },
     {
       "identity" : "swiftsoup",
       "kind" : "remoteSourceControl",

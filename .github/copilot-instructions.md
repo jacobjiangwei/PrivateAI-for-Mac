@@ -50,6 +50,14 @@ If an external service or protected macOS capability prevents integration testin
 
 Protected macOS capability success belongs in a signed App-hosted E2E scenario with the real bundle identity, entitlements, usage descriptions, and explicit authorization preconditions. Swift Package tests may verify argument contracts and denied/unavailable error mapping, but a branch that accepts denial or unavailability must not be named or reported as a successful capability test.
 
+## Real user acceptance gate
+
+- Before reporting any user-facing capability as complete, available, working, or passed, run at least one realistic safe task from the same natural-language entry point the user will use in the production App. Exercise the production model, Tool catalog, runtime, executor, persistence, and final UI-visible answer. Do not substitute a direct executor call, protocol smoke test, fixture backend, mock model, schema check, registration check, or manually forced Tool call.
+- Establish deterministic ground truth independently before the model-driven run, then assert the final user-visible outcome contains the requested real facts, values, state change, or artifact. Tool selection, argument selection, request counts, intermediate output, and non-empty final text remain diagnostic evidence only.
+- Use a non-destructive acceptance task unless the capability itself requires a mutation. Record and compare relevant preconditions and postconditions so the test proves no unrequested deletion, write, move, rename, installation, or other side effect occurred.
+- If the production route cannot be exercised because integration, signing, authorization, a real model, or an external dependency is missing, report the capability as partial, blocked, or untested. Never lower the acceptance boundary or describe lower-level passing tests as completion.
+- For terminal execution, the mandatory acceptance scenario is a natural-language, read-only filesystem request through the signed App and a real Ollama model, such as: find the largest file or directory in the user-authorized Documents directory, report its measured path and size, and suggest cleanup options without cleaning anything. Independently compute the ground truth, assert the final answer identifies the real largest item and offers only non-destructive recommendations, and verify the filesystem snapshot is unchanged. Also retain focused real-executor tests for completion, nonzero exit, incremental drain, checkpoint observation, timeout, descendant cancellation, interruption, PTY, output truncation, and secret-input redaction as applicable.
+
 ## Capability boundaries
 
 - Keep `LLMCore` provider- and capability-neutral. It owns model contracts, the package system prompt, warmup, `ToolRuntime`, and the model/tool loop.
@@ -70,6 +78,16 @@ Protected macOS capability success belongs in a signed App-hosted E2E scenario w
 - Prefer a controlling abstraction such as document-format routing or capability actions over accumulating unrelated extension checks and special cases.
 - Do not claim support for an input category until a real fixture or integration test covers it.
 - For terminal execution, direct tests must cover real commands, incremental output before completion, nonzero exit, timeout, cancellation of descendants, interruption state, PTY interaction, output truncation, and secret-input redaction. A mocked runner cannot satisfy the integration gate.
+
+## Generalization and scenario coverage
+
+- A user example is an acceptance sample, never the capability boundary. Before editing code, translate examples into a capability matrix and identify unrelated scenario families that exercise the same abstraction. Do not optimize registration, permissions, schemas, prompts, or tests around the first example.
+- For a general terminal capability, the minimum scenario matrix includes filesystem inspection, file creation and code editing, build and test commands, network diagnostics, nonzero exits, missing executables, long-running output, timeout, cancellation, and cleanup. Add platform or permission variants when they materially change execution.
+- General terminal availability must not depend on a user selecting a filesystem folder. When the signed worker is available, ordinary non-document conversations receive terminal execution rooted at the managed `~/.privateAI` workspace by default. Selecting a folder changes the authorized filesystem root; it does not enable the terminal capability itself. Document privacy mode remains a deliberate exception.
+- Validate model routing with ordinary natural-language prompts that describe the task, not prompts that name or force the Tool. Include at least two semantically unrelated model-driven scenarios before claiming a general capability is complete. For terminal work, one scenario must be filesystem or coding work and another must be non-filesystem work such as network or process diagnostics.
+- Design routing evals around the evidence source rather than domain keywords. A network request may require local terminal evidence such as ping or traceroute, public web evidence, native macOS network state, or a justified combination. Do not encode a one-domain-to-one-Tool rule, and do not grade a valid route as wrong merely because another Tool could also contribute.
+- Evaluate each model-driven scenario against its own ground truth and requested final outcome. Tool presence, Tool selection, command text, intermediate output, or success in a different scenario cannot substitute for the scenario's final user-visible result.
+- A user's real App transcript showing missing tools, wrong routing, failed execution, or an incorrect final answer is sufficient evidence that the observed build/session failed. Do not rerun the unchanged failure merely to prove it again. Diagnose the controlling path, implement an evidence-backed fix, and reserve repetition for post-fix verification or a stated nondeterminism hypothesis.
 
 ## Validation
 

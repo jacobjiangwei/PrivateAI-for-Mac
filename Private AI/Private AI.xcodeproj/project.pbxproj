@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		A10000013050000100000001 /* LLMCore in Frameworks */ = {isa = PBXBuildFile; productRef = A10000053050000100000001 /* LLMCore */; };
 		A10000023050000100000001 /* PrivateAITools in Frameworks */ = {isa = PBXBuildFile; productRef = A10000063050000100000001 /* PrivateAITools */; };
+		A20000013090400100000001 /* PrivateAIExecutionWorkerMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000063090400100000001 /* PrivateAIExecutionWorkerMain.swift */; };
+		A20000023090400100000001 /* ExecutionKit in Frameworks */ = {isa = PBXBuildFile; productRef = A20000113090400100000001 /* ExecutionKit */; };
+		A20000033090400100000001 /* PrivateAIExecutionWorker in Embed Execution Worker */ = {isa = PBXBuildFile; fileRef = A20000053090400100000001 /* PrivateAIExecutionWorker */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -26,12 +29,35 @@
 			remoteGlobalIDString = 16E0DAC130430AAA0087199D;
 			remoteInfo = "Private AI";
 		};
+		A20000043090400100000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 16E0DABA30430AAA0087199D /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A200000A3090400100000001;
+			remoteInfo = PrivateAIExecutionWorker;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A200000C3090400100000001 /* Embed Execution Worker */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				A20000033090400100000001 /* PrivateAIExecutionWorker in Embed Execution Worker */,
+			);
+			name = "Embed Execution Worker";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		16E0DAC230430AAA0087199D /* Private AI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Private AI.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		16E0DAD130430AAB0087199D /* Private AITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Private AITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		16E0DADB30430AAB0087199D /* Private AIUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Private AIUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000053090400100000001 /* PrivateAIExecutionWorker */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = PrivateAIExecutionWorker; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000063090400100000001 /* PrivateAIExecutionWorkerMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateAIExecutionWorkerMain.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -76,6 +102,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A20000083090400100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000023090400100000001 /* ExecutionKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -83,6 +117,7 @@
 			isa = PBXGroup;
 			children = (
 				16E0DAC430430AAA0087199D /* Private AI */,
+				A20000073090400100000001 /* Execution Worker */,
 				16E0DAD430430AAB0087199D /* Private AITests */,
 				16E0DADE30430AAB0087199D /* Private AIUITests */,
 				16E0DAC330430AAA0087199D /* Products */,
@@ -93,10 +128,19 @@
 			isa = PBXGroup;
 			children = (
 				16E0DAC230430AAA0087199D /* Private AI.app */,
+				A20000053090400100000001 /* PrivateAIExecutionWorker */,
 				16E0DAD130430AAB0087199D /* Private AITests.xctest */,
 				16E0DADB30430AAB0087199D /* Private AIUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A20000073090400100000001 /* Execution Worker */ = {
+			isa = PBXGroup;
+			children = (
+				A20000063090400100000001 /* PrivateAIExecutionWorkerMain.swift */,
+			);
+			path = "Execution Worker";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -109,10 +153,12 @@
 				16E0DABE30430AAA0087199D /* Sources */,
 				16E0DABF30430AAA0087199D /* Frameworks */,
 				16E0DAC030430AAA0087199D /* Resources */,
+				A200000C3090400100000001 /* Embed Execution Worker */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A200000B3090400100000001 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				16E0DAC430430AAA0087199D /* Private AI */,
@@ -172,6 +218,25 @@
 			productReference = 16E0DADB30430AAB0087199D /* Private AIUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		A200000A3090400100000001 /* PrivateAIExecutionWorker */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A200000F3090400100000001 /* Build configuration list for PBXNativeTarget "PrivateAIExecutionWorker" */;
+			buildPhases = (
+				A20000093090400100000001 /* Sources */,
+				A20000083090400100000001 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PrivateAIExecutionWorker;
+			packageProductDependencies = (
+				A20000113090400100000001 /* ExecutionKit */,
+			);
+			productName = PrivateAIExecutionWorker;
+			productReference = A20000053090400100000001 /* PrivateAIExecutionWorker */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -193,6 +258,9 @@
 						CreatedOnToolsVersion = 26.6;
 						TestTargetID = 16E0DAC130430AAA0087199D;
 					};
+					A200000A3090400100000001 = {
+						CreatedOnToolsVersion = 26.6;
+					};
 				};
 			};
 			buildConfigurationList = 16E0DABD30430AAA0087199D /* Build configuration list for PBXProject "Private AI" */;
@@ -207,6 +275,7 @@
 			packageReferences = (
 				A10000033050000100000001 /* XCLocalSwiftPackageReference "../Packages/LLMCore" */,
 				A10000043050000100000001 /* XCLocalSwiftPackageReference "../Packages/PrivateAITools" */,
+				A20000103090400100000001 /* XCLocalSwiftPackageReference "../Packages/ExecutionKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 16E0DAC330430AAA0087199D /* Products */;
@@ -214,6 +283,7 @@
 			projectRoot = "";
 			targets = (
 				16E0DAC130430AAA0087199D /* Private AI */,
+				A200000A3090400100000001 /* PrivateAIExecutionWorker */,
 				16E0DAD030430AAB0087199D /* Private AITests */,
 				16E0DADA30430AAB0087199D /* Private AIUITests */,
 			);
@@ -266,6 +336,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A20000093090400100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A20000013090400100000001 /* PrivateAIExecutionWorkerMain.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -278,6 +356,11 @@
 			isa = PBXTargetDependency;
 			target = 16E0DAC130430AAA0087199D /* Private AI */;
 			targetProxy = 16E0DADC30430AAB0087199D /* PBXContainerItemProxy */;
+		};
+		A200000B3090400100000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A200000A3090400100000001 /* PrivateAIExecutionWorker */;
+			targetProxy = A20000043090400100000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -558,6 +641,34 @@
 			};
 			name = Release;
 		};
+		A200000D3090400100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = WA29CC2SZR;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A200000E3090400100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = WA29CC2SZR;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -597,6 +708,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A200000F3090400100000001 /* Build configuration list for PBXNativeTarget "PrivateAIExecutionWorker" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A200000D3090400100000001 /* Debug */,
+				A200000E3090400100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -607,6 +727,10 @@
 		A10000043050000100000001 /* XCLocalSwiftPackageReference "../Packages/PrivateAITools" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../Packages/PrivateAITools;
+		};
+		A20000103090400100000001 /* XCLocalSwiftPackageReference "../Packages/ExecutionKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/ExecutionKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -620,6 +744,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A10000043050000100000001 /* XCLocalSwiftPackageReference "../Packages/PrivateAITools" */;
 			productName = PrivateAITools;
+		};
+		A20000113090400100000001 /* ExecutionKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A20000103090400100000001 /* XCLocalSwiftPackageReference "../Packages/ExecutionKit" */;
+			productName = ExecutionKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

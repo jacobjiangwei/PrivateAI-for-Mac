@@ -8,16 +8,27 @@ actor ChatAgent {
     private let generalToolRuntime: ToolRuntime
     private let localResourcesRoot: URL
     private let documentSummariesRoot: URL
+    private let terminalBackend: TerminalExecutionBackend?
+    private let defaultExecutionWorkspace: URL?
     private let log: RuntimeLog
     private var runtimes: [RuntimeKey: AgentRuntime] = [:]
 
-    init(log: RuntimeLog, localResourcesRoot: URL, jobsRoot: URL) throws {
+    init(
+        log: RuntimeLog,
+        localResourcesRoot: URL,
+        jobsRoot: URL,
+        terminalBackend: TerminalExecutionBackend? = nil,
+        defaultExecutionWorkspace: URL? = nil
+    ) throws {
         provider = try OllamaProvider()
         self.localResourcesRoot = localResourcesRoot
         documentSummariesRoot = jobsRoot.appending(
             path: "document-summaries",
             directoryHint: .isDirectory
         )
+        self.terminalBackend = terminalBackend
+        self.defaultExecutionWorkspace = defaultExecutionWorkspace?
+            .standardizedFileURL.resolvingSymlinksInPath()
         localResources = LocalResourcesTool(
             access: .restricted([localResourcesRoot]),
             maximumTextCharacters: 2_000
@@ -36,6 +47,7 @@ actor ChatAgent {
         runID: UUID,
         conversationID: UUID,
         documentPrivacyMode: Bool,
+        executionWorkspace: URL? = nil,
         managedAttachmentAccess: Bool = true,
         authorizedLocalFiles: [URL] = [],
         onEvent: @escaping AgentRuntime.EventHandler
@@ -48,6 +60,7 @@ actor ChatAgent {
         let runtime = try runtime(
             for: model,
             documentPrivacyMode: documentPrivacyMode,
+            executionWorkspace: executionWorkspace,
             managedAttachmentAccess: managedAttachmentAccess,
             authorizedLocalFiles: authorizedLocalFiles
         )
@@ -74,7 +87,12 @@ actor ChatAgent {
                 "total_seconds": String(result.performance.totalSeconds)
             ])
             return result
+        } catch is CancellationError {
+            await runtime.cancelActiveTools()
+            await log.record("agent.request.cancelled", fields: ["model": model])
+            throw CancellationError()
         } catch {
+            await runtime.cancelActiveTools()
             await log.record("agent.request.failed", fields: [
                 "error": String(describing: error),
                 "model": model
@@ -106,12 +124,14 @@ actor ChatAgent {
     func availableToolNames(
         documentPrivacyMode: Bool,
         model: String = "fixture",
+        executionWorkspace: URL? = nil,
         managedAttachmentAccess: Bool = true,
         authorizedLocalFiles: [URL] = []
     ) async throws -> [String] {
         let runtime = try toolRuntime(
             for: model,
             documentPrivacyMode: documentPrivacyMode,
+            executionWorkspace: executionWorkspace,
             managedAttachmentAccess: managedAttachmentAccess,
             authorizedLocalFiles: authorizedLocalFiles
         )
@@ -121,12 +141,16 @@ actor ChatAgent {
     private func runtime(
         for model: String,
         documentPrivacyMode: Bool,
+        executionWorkspace: URL? = nil,
         managedAttachmentAccess: Bool = false,
         authorizedLocalFiles: [URL] = []
     ) throws -> AgentRuntime {
+        let effectiveExecutionWorkspace = executionWorkspace
+            ?? defaultExecutionWorkspace
         let key = RuntimeKey(
             model: model,
             documentPrivacyMode: documentPrivacyMode,
+            executionWorkspacePath: effectiveExecutionWorkspace?.path,
             managedAttachmentAccess: managedAttachmentAccess,
             authorizedLocalPaths: authorizedLocalFiles.map(\.path).sorted()
         )
@@ -138,6 +162,7 @@ actor ChatAgent {
             toolRuntime: try toolRuntime(
                 for: model,
                 documentPrivacyMode: documentPrivacyMode,
+                executionWorkspace: effectiveExecutionWorkspace,
                 managedAttachmentAccess: managedAttachmentAccess,
                 authorizedLocalFiles: authorizedLocalFiles
             ),
@@ -150,10 +175,25 @@ actor ChatAgent {
     private func toolRuntime(
         for model: String,
         documentPrivacyMode: Bool,
+        executionWorkspace: URL? = nil,
         managedAttachmentAccess: Bool = false,
         authorizedLocalFiles: [URL] = []
     ) throws -> ToolRuntime {
-        guard documentPrivacyMode else { return generalToolRuntime }
+        guard documentPrivacyMode else {
+                        guard let terminalBackend,
+                                    let executionWorkspace = executionWorkspace
+                                        ?? defaultExecutionWorkspace else {
+                return generalToolRuntime
+            }
+            return try ToolRuntime(tools: [
+                AppleServicesTool(),
+                TerminalTool(
+                    workspace: executionWorkspace,
+                    backend: terminalBackend
+                ),
+                WebTool()
+            ])
+        }
         let roots = (managedAttachmentAccess ? [localResourcesRoot] : [])
             + authorizedLocalFiles
         let localResources = LocalResourcesTool(
@@ -175,7 +215,8 @@ actor ChatAgent {
             model: model,
             keepAlive: "-1",
             options: ModelOptions(numContext: 8_192, temperature: 0.2, numPredict: 2_048),
-            think: true
+            think: true,
+            maximumToolRounds: 64
         )
     }
 
@@ -228,6 +269,7 @@ actor ChatAgent {
 nonisolated private struct RuntimeKey: Hashable {
     let model: String
     let documentPrivacyMode: Bool
+    let executionWorkspacePath: String?
     let managedAttachmentAccess: Bool
     let authorizedLocalPaths: [String]
 }
@@ -252,6 +294,9 @@ nonisolated enum PromptLocalFileResolver {
         fileManager: FileManager = .default,
         isRegularFile: (URL) -> Bool = { url in
             (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+        },
+        isExecutableFile: (URL) -> Bool = { url in
+            FileManager.default.isExecutableFile(atPath: url.path)
         }
     ) -> [URL] {
         var files: [URL] = []
@@ -279,7 +324,11 @@ nonisolated enum PromptLocalFileResolver {
                         continue
                     }
                     probeCount += 1
-                    guard isRegularFile(candidate) else { continue }
+                    guard isRegularFile(candidate),
+                          !candidate.pathExtension.isEmpty || !isExecutableFile(candidate)
+                    else {
+                        continue
+                    }
                     matches.append((
                         candidate.standardizedFileURL.resolvingSymlinksInPath(),
                         representation.value.count

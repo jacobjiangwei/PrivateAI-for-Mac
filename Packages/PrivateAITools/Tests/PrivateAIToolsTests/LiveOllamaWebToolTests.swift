@@ -1,8 +1,13 @@
+import Foundation
 import LLMCore
 import Testing
 @testable import PrivateAITools
 
-@Suite("Live Ollama Web Tool", .serialized)
+@Suite(
+    "Live Ollama Web Tool",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+)
 struct LiveOllamaWebToolTests {
     @Test("model invokes the real web search and uses its result")
     func searchThroughAgentLoop() async throws {

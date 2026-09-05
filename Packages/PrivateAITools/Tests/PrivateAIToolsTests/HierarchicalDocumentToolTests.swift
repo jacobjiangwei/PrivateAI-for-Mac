@@ -236,7 +236,10 @@ struct HierarchicalDocumentToolTests {
         #expect(second["model_request_count"] == .number(0))
     }
 
-    @Test("model uses hierarchical analysis and includes every page fact in its final answer")
+    @Test(
+        "model uses hierarchical analysis and includes every page fact in its final answer",
+        .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+    )
     func modelDrivenWholeDocumentSummary() async throws {
         let root = FileManager.default.temporaryDirectory
             .appending(path: UUID().uuidString, directoryHint: .isDirectory)

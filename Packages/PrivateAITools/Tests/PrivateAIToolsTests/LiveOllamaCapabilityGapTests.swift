@@ -9,7 +9,11 @@ import Testing
 /// tools the category needs, and prints the ground-truth executor result next to
 /// the model's final answer. These are diagnostic capability probes: they surface
 /// what PrivateAI can and cannot do today so gaps are evidence-based, not inferred.
-@Suite("Live Ollama Capability Gap Probe", .serialized)
+@Suite(
+    "Live Ollama Capability Gap Probe",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+)
 struct LiveOllamaCapabilityGapTests {
     private static let model = "qwen3.8:latest"
 

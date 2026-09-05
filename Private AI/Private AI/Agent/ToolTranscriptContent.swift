@@ -10,6 +10,20 @@ enum ToolTranscriptContent {
         if documentPrivacyMode, name != "local_resources" {
             return [:]
         }
+        if name == "terminal" {
+            guard let action = arguments["action"]?.stringValue,
+                  ["run", "wait", "stop"].contains(action) else {
+                return [:]
+            }
+            var safe: [String: JSONValue] = ["action": .string(action)]
+            for key in [
+                "command", "working_directory", "job_id", "checkpoint_seconds",
+                "timeout_seconds"
+            ] {
+                safe[key] = arguments[key]
+            }
+            return safe.compactMapValues { $0 }
+        }
         guard name == "local_resources" else {
             return ["web", "apple_services"].contains(name) ? arguments : [:]
         }

@@ -62,7 +62,10 @@ struct ManagedArtifactStoreTests {
         #expect(output.contains("IRIS-73"))
     }
 
-    @Test("model reads an imported PDF and uses its ground truth in the final answer")
+    @Test(
+        "model reads an imported PDF and uses its ground truth in the final answer",
+        .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+    )
     @MainActor
     func managedAttachmentThroughAgent() async throws {
         let fixtureRoot = FileManager.default.temporaryDirectory

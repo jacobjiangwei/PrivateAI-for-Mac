@@ -2,7 +2,11 @@ import Foundation
 import Testing
 @testable import LLMCore
 
-@Suite("Live Ollama", .serialized)
+@Suite(
+    "Live Ollama",
+    .serialized,
+    .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+)
 struct LiveOllamaTests {
     @Test("warm model returns first text within five seconds")
     func warmTTFT() async throws {

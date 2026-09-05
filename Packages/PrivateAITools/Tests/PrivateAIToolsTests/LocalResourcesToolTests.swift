@@ -477,7 +477,10 @@ struct LocalResourcesToolTests {
         #expect(output.contains("犀牛"))
     }
 
-    @Test("model selects local resources and reads a real PDF with PDFKit")
+    @Test(
+        "model selects local resources and reads a real PDF with PDFKit",
+        .enabled(if: ProcessInfo.processInfo.environment["PRIVATEAI_RUN_HEADLESS_MODEL_EVALS"] == "1")
+    )
     func pdfThroughAgentLoop() async throws {
         try await withFixtureDirectory { root in
             let pdfURL = root.appending(path: "agent-document.pdf")

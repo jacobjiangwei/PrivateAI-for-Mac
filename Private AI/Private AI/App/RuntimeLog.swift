@@ -2,6 +2,8 @@ import Foundation
 
 nonisolated struct ManagedRuntimeDirectory {
     let root: URL
+    let workspaces: URL
+    let defaultWorkspace: URL
     let logs: URL
     let artifacts: URL
     let jobs: URL
@@ -9,6 +11,8 @@ nonisolated struct ManagedRuntimeDirectory {
 
     init(fileManager: FileManager = .default) throws {
         root = fileManager.homeDirectoryForCurrentUser.appending(path: ".privateAI", directoryHint: .isDirectory)
+        workspaces = root.appending(path: "workspaces", directoryHint: .isDirectory)
+        defaultWorkspace = workspaces.appending(path: "default", directoryHint: .isDirectory)
         logs = root.appending(path: "logs", directoryHint: .isDirectory)
         artifacts = root.appending(path: "artifacts", directoryHint: .isDirectory)
         jobs = root.appending(path: "jobs", directoryHint: .isDirectory)
@@ -19,6 +23,15 @@ nonisolated struct ManagedRuntimeDirectory {
                 withIntermediateDirectories: true
             )
         }
+        try fileManager.createDirectory(
+            at: defaultWorkspace,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: defaultWorkspace.path
+        )
     }
 }
 

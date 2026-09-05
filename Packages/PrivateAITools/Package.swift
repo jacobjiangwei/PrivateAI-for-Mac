@@ -12,16 +12,17 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../LLMCore"),
+        .package(path: "../ExecutionKit"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", exact: "2.13.9")
     ],
     targets: [
         .target(
             name: "PrivateAITools",
-            dependencies: ["LLMCore", "SwiftSoup"]
+            dependencies: ["ExecutionKit", "LLMCore", "SwiftSoup"]
         ),
         .testTarget(
             name: "PrivateAIToolsTests",
-            dependencies: ["PrivateAITools", "LLMCore"],
+            dependencies: ["ExecutionKit", "PrivateAITools", "LLMCore"],
             resources: [
                 .copy("Fixtures")
             ]
