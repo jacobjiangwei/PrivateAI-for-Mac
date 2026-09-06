@@ -12,8 +12,10 @@ public protocol LLMTool: Sendable {
     ) -> [String: JSONValue]?
     func successfulResultReuseKey(arguments: [String: JSONValue]) -> String?
     func toolCallBudgetCost(arguments: [String: JSONValue]) -> Int
+    func requiresExclusiveRound(arguments: [String: JSONValue]) -> Bool
     func cancelAll() async
     func execute(arguments: [String: JSONValue]) async throws -> String
+    func executeOutput(arguments: [String: JSONValue]) async throws -> ToolOutput
 }
 
 public extension LLMTool {
@@ -42,7 +44,25 @@ public extension LLMTool {
         1
     }
 
+    func requiresExclusiveRound(arguments: [String: JSONValue]) -> Bool {
+        false
+    }
+
     func cancelAll() async {}
+
+    func executeOutput(arguments: [String: JSONValue]) async throws -> ToolOutput {
+        ToolOutput(content: try await execute(arguments: arguments))
+    }
+}
+
+public struct ToolOutput: Equatable, Sendable {
+    public let content: String
+    public let images: [ModelImage]
+
+    public init(content: String, images: [ModelImage] = []) {
+        self.content = content
+        self.images = images
+    }
 }
 
 public enum ToolRuntimeError: Error, Equatable, LocalizedError, Sendable {
@@ -68,19 +88,22 @@ public struct ToolExecution: Equatable, Sendable {
     public let content: String
     public let succeeded: Bool
     public let errorType: String?
+    public let images: [ModelImage]
 
     public init(
         name: String,
         arguments: [String: JSONValue],
         content: String,
-        succeeded: Bool
+        succeeded: Bool,
+        images: [ModelImage] = []
     ) {
         self.init(
             name: name,
             arguments: arguments,
             content: content,
             succeeded: succeeded,
-            errorType: nil
+            errorType: nil,
+            images: images
         )
     }
 
@@ -89,13 +112,15 @@ public struct ToolExecution: Equatable, Sendable {
         arguments: [String: JSONValue],
         content: String,
         succeeded: Bool,
-        errorType: String?
+        errorType: String?,
+        images: [ModelImage] = []
     ) {
         self.name = name
         self.arguments = arguments
         self.content = content
         self.succeeded = succeeded
         self.errorType = errorType
+        self.images = images
     }
 }
 
@@ -172,6 +197,12 @@ public actor ToolRuntime {
         return max(0, tool.toolCallBudgetCost(arguments: call.function.arguments))
     }
 
+    public func requiresExclusiveRound(_ call: ToolCall) -> Bool {
+        tools[call.function.name]?.requiresExclusiveRound(
+            arguments: call.function.arguments
+        ) ?? false
+    }
+
     public func cancelAll() async {
         let cleanupTasks = tools.values.map { tool in
             Task.detached {
@@ -218,12 +249,13 @@ public actor ToolRuntime {
 
     private func execute(tool: any LLMTool, call: ToolCall) async -> ToolExecution {
         do {
-            let content = try await tool.execute(arguments: call.function.arguments)
+            let output = try await tool.executeOutput(arguments: call.function.arguments)
             return ToolExecution(
                 name: call.function.name,
                 arguments: call.function.arguments,
-                content: Self.boundedContent(content, limitBytes: outputLimitBytes),
-                succeeded: true
+                content: Self.boundedContent(output.content, limitBytes: outputLimitBytes),
+                succeeded: true,
+                images: output.images
             )
         } catch {
             return failedExecution(call: call, error: error)

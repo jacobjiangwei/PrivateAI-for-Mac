@@ -23,6 +23,7 @@ final class ChatCoordinator {
     private(set) var executionWorkspace: URL?
     private(set) var terminalActivity: TerminalActivityState?
     private(set) var terminalAvailable: Bool
+    let browser: BrowserCoordinator
     var draft = ""
 
     let ollama: OllamaServiceController
@@ -46,10 +47,12 @@ final class ChatCoordinator {
         defaultExecutionWorkspace = dependencies.initialExecutionWorkspace
         executionWorkspace = dependencies.initialExecutionWorkspace
         terminalAvailable = dependencies.terminalBackend != nil
+        browser = dependencies.browser
         ollama = dependencies.ollama
         reloadConversations()
         Task {
             await ollama.refresh()
+            await openBrowserPreviewIfConfigured()
             await warmSelectedModel()
             await runAcceptanceScenarioIfConfigured()
         }
@@ -238,6 +241,7 @@ final class ChatCoordinator {
             reloadConversations(preservingSelection: true)
             let assistantID = assistant.id
             let conversationID = conversation.id
+            let modelName = conversation.modelName
             let runID = UUID()
             activeGenerationConversationID = conversationID
 
@@ -250,7 +254,7 @@ final class ChatCoordinator {
                     conversationID: conversationID,
                     data: [
                         "history_message_count": history.count,
-                        "model": conversation.modelName,
+                        "model": modelName,
                         "prompt_characters": prompt.count,
                         "attachment_count": turn.user.attachments.count,
                         "authorized_local_file_count": authorizedLocalFiles.count,
@@ -261,7 +265,7 @@ final class ChatCoordinator {
                     let result = try await agent.respond(
                         prompt: modelPrompt,
                         history: history,
-                        model: conversation.modelName,
+                        model: modelName,
                         runID: runID,
                         conversationID: conversationID,
                         documentPrivacyMode: documentPrivacyMode,
@@ -274,6 +278,7 @@ final class ChatCoordinator {
                             assistantID: assistantID,
                             conversationID: conversationID,
                             runID: runID,
+                            model: modelName,
                             documentPrivacyMode: documentPrivacyMode
                         )
                     }
@@ -375,11 +380,27 @@ final class ChatCoordinator {
         NSPasteboard.general.setString(message.content, forType: .string)
     }
 
+    private func openBrowserPreviewIfConfigured() async {
+        #if DEBUG
+        guard let value = ProcessInfo.processInfo.environment[
+            "PRIVATEAI_BROWSER_PREVIEW_URL"
+        ], let url = URL(string: value) else {
+            return
+        }
+        do {
+            _ = try await browser.execute(.open(url))
+        } catch {
+            activity = error.localizedDescription
+        }
+        #endif
+    }
+
     private func consume(
         _ event: AgentEvent,
         assistantID: UUID,
         conversationID: UUID,
         runID: UUID,
+        model: String,
         documentPrivacyMode: Bool
     ) async {
         guard let conversation = conversations.first(where: { $0.id == conversationID }),
@@ -395,7 +416,7 @@ final class ChatCoordinator {
                 runID: runID,
                 conversationID: conversationID,
                 round: round,
-                data: ["model": ollama.selectedModel]
+                data: ["model": model]
             )
         case .modelRequestFinished(let round, let usage):
             await log.record(

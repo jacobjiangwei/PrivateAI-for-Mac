@@ -104,7 +104,7 @@ struct TranscriptWebView: NSViewRepresentable {
         :root { color-scheme: light dark; font-family: ui-rounded, "Avenir Next", sans-serif; }
         * { box-sizing: border-box; }
         body { margin: 0; background: transparent; color: CanvasText; }
-        #messages { max-width: 860px; margin: 0 auto; padding: 24px 28px 48px; }
+        #messages { max-width: \#(Int(InterfaceMetrics.chatContentMaximumWidth))px; margin: 0 auto; padding: 24px 28px 48px; }
         article { position: relative; margin: 0 0 22px; padding-right: 34px; }
         article.user { margin-left: 18%; padding: 12px 42px 12px 14px; background: color-mix(in srgb, AccentColor 14%, Canvas); border-radius: 8px; }
         .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -162,6 +162,15 @@ struct TranscriptWebView: NSViewRepresentable {
         /* When a streaming bubble has real text, show a subtle thin caret; the empty
            "waiting for first token" state uses the .dots indicator instead (see JS). */
         .content.streaming.waiting::after { content: none; }
+        #jump-latest {
+          position: fixed; right: 22px; bottom: 18px; z-index: 10;
+          width: 34px; height: 34px; padding: 0; border-radius: 50%;
+          border: 1px solid color-mix(in srgb, GrayText 32%, transparent);
+          background: color-mix(in srgb, Canvas 94%, transparent);
+          color: CanvasText; box-shadow: 0 3px 12px color-mix(in srgb, CanvasText 16%, transparent);
+          cursor: pointer; font-size: 18px; line-height: 32px;
+        }
+        #jump-latest[hidden] { display: none; }
         @keyframes caret {
           0%, 100% { opacity: .85; }
           50% { opacity: .15; }
@@ -173,7 +182,7 @@ struct TranscriptWebView: NSViewRepresentable {
         }
       </style>
     </head>
-    <body><main id="messages"></main><div id="scroll-status" class="sr-only" role="status">Transcript ready</div>
+    <body><main id="messages"></main><button id="jump-latest" type="button" title="Go to latest message" aria-label="Go to latest message" hidden>↓</button><div id="scroll-status" class="sr-only" role="status">Transcript ready</div>
       <script nonce="privateai">
         \#(TranscriptResources.katexJavaScript)
         \#(TranscriptResources.autoRenderJavaScript)
@@ -252,75 +261,175 @@ struct TranscriptWebView: NSViewRepresentable {
           if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
           return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
         }
-        function render(messages) {
-          const root = document.getElementById('messages');
-          root.replaceChildren(...messages.map(message => {
-            const article = document.createElement('article');
-            article.className = message.role;
-            article.id = 'message-' + message.id;
-            article.dataset.sequence = String(messages.indexOf(message));
-            article.setAttribute('aria-label', message.role === 'tool'
-              ? `Tool ${message.tool}, ${message.status}`
-              : `${message.role} message, ${message.status}`);
-            const content = document.createElement('div');
-            const isStreaming = message.status === 'streaming';
-            const hasText = (message.content || '').trim().length > 0;
-            const isWaiting = isStreaming && !hasText && message.role !== 'thinking';
-            content.className = 'content'
-              + (isStreaming ? ' streaming' : '')
-              + (isWaiting ? ' waiting' : '');
-            if (isWaiting) {
+        function messageSignature(message) {
+          return JSON.stringify([
+            message.role,
+            message.content || '',
+            message.status,
+            message.error || '',
+            message.tool || '',
+            message.attachments || []
+          ]);
+        }
+        function updateArticle(article, message, index) {
+          const signature = messageSignature(message);
+          article.dataset.sequence = String(index);
+          if (article.dataset.signature === signature) return;
+          article.dataset.signature = signature;
+          article.className = message.role;
+          article.setAttribute('aria-label', message.role === 'tool'
+            ? `Tool ${message.tool}, ${message.status}`
+            : `${message.role} message, ${message.status}`);
+          article.replaceChildren();
+          const content = document.createElement('div');
+          const isStreaming = message.status === 'streaming';
+          const hasText = (message.content || '').trim().length > 0;
+          const isWaiting = isStreaming && !hasText && message.role !== 'thinking';
+          content.className = 'content'
+            + (isStreaming ? ' streaming' : '')
+            + (isWaiting ? ' waiting' : '');
+          if (isWaiting) {
+            const dots = document.createElement('span');
+            dots.className = 'dots';
+            dots.innerHTML = '<span></span><span></span><span></span>';
+            content.appendChild(dots);
+          } else {
+            content.innerHTML = markdown(message.content || '');
+            renderMath(content);
+          }
+          if (Array.isArray(message.attachments) && message.attachments.length > 0) {
+            const attachments = document.createElement('div');
+            attachments.className = 'attachments';
+            for (const item of message.attachments) {
+              const attachment = document.createElement('div');
+              attachment.className = 'attachment';
+              attachment.textContent = `${item.name} · ${String(item.format).replaceAll('_', ' ')} · ${byteCount(item.size)}`;
+              attachments.appendChild(attachment);
+            }
+            article.appendChild(attachments);
+          }
+          if (message.role === 'thinking') {
+            const body = document.createElement('div');
+            body.className = 'thinking-body';
+            const title = document.createElement('div');
+            title.className = 'thinking-title';
+            if (message.status === 'streaming') {
+              const label = document.createElement('span');
+              label.className = 'thinking-glow';
+              label.textContent = 'Thinking';
               const dots = document.createElement('span');
               dots.className = 'dots';
               dots.innerHTML = '<span></span><span></span><span></span>';
-              content.appendChild(dots);
+              title.append(label, dots);
             } else {
-              content.innerHTML = markdown(message.content || '');
-              renderMath(content);
+              title.textContent = 'Thinking';
             }
-            if (Array.isArray(message.attachments) && message.attachments.length > 0) {
-              const attachments = document.createElement('div');
-              attachments.className = 'attachments';
-              for (const item of message.attachments) {
-                const attachment = document.createElement('div');
-                attachment.className = 'attachment';
-                attachment.textContent = `${item.name} · ${String(item.format).replaceAll('_', ' ')} · ${byteCount(item.size)}`;
-                attachments.appendChild(attachment);
-              }
-              article.appendChild(attachments);
+            body.append(title, content);
+            article.appendChild(body);
+          } else {
+            article.appendChild(content);
+          }
+          if (message.error) {
+            const error = document.createElement('div');
+            error.className = 'error';
+            error.textContent = message.error;
+            article.appendChild(error);
+          }
+          const copy = document.createElement('button');
+          copy.className = 'copy';
+          copy.textContent = '⧉';
+          copy.title = 'Copy source';
+          copy.onclick = () => webkit.messageHandlers.copyMessage.postMessage(message.id);
+          article.appendChild(copy);
+        }
+        const jumpLatest = document.getElementById('jump-latest');
+        const scrollStatus = document.getElementById('scroll-status');
+        let followsLatest = true;
+        let hasUnseenUpdates = false;
+        let lastScrollY = window.scrollY;
+        let scrollFrame = 0;
+        function distanceFromBottom() {
+          return Math.max(0, document.documentElement.scrollHeight - (window.scrollY + window.innerHeight));
+        }
+        function updateJumpLatest() {
+          jumpLatest.hidden = followsLatest || !hasUnseenUpdates;
+          document.body.dataset.followsLatest = String(followsLatest);
+          scrollStatus.textContent = followsLatest
+            ? 'Transcript following latest message'
+            : 'Transcript paused above latest message';
+        }
+        function updateFollowStateFromScroll() {
+          const currentY = window.scrollY;
+          const distance = distanceFromBottom();
+          if (currentY < lastScrollY - 1 || distance > 96) {
+            followsLatest = false;
+          } else if (distance <= 24) {
+            followsLatest = true;
+            hasUnseenUpdates = false;
+          }
+          lastScrollY = currentY;
+          updateJumpLatest();
+        }
+        window.addEventListener('scroll', () => {
+          cancelAnimationFrame(scrollFrame);
+          scrollFrame = requestAnimationFrame(updateFollowStateFromScroll);
+        }, { passive: true });
+        window.addEventListener('wheel', event => {
+          if (event.deltaY < 0) {
+            followsLatest = false;
+            updateJumpLatest();
+          }
+        }, { passive: true });
+        window.addEventListener('keydown', event => {
+          if (['PageUp', 'Home', 'ArrowUp'].includes(event.key)) {
+            followsLatest = false;
+            updateJumpLatest();
+          }
+        });
+        jumpLatest.addEventListener('click', () => {
+          followsLatest = true;
+          hasUnseenUpdates = false;
+          updateJumpLatest();
+          window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+        });
+        function render(messages) {
+          const root = document.getElementById('messages');
+          const wasFollowingLatest = followsLatest;
+          const previousScrollY = window.scrollY;
+          const previousIDs = new Set(Array.from(root.children, node => node.id));
+          const nextIDs = new Set(messages.map(message => 'message-' + message.id));
+          const conversationChanged = previousIDs.size > 0
+            && !Array.from(previousIDs).some(id => nextIDs.has(id));
+          if (conversationChanged) {
+            followsLatest = true;
+            hasUnseenUpdates = false;
+          }
+          for (const article of Array.from(root.children)) {
+            if (!nextIDs.has(article.id)) article.remove();
+          }
+          messages.forEach((message, index) => {
+            const id = 'message-' + message.id;
+            let article = document.getElementById(id);
+            if (!article) {
+              article = document.createElement('article');
+              article.id = id;
             }
-            if (message.role === 'thinking') {
-              const body = document.createElement('div');
-              body.className = 'thinking-body';
-              const title = document.createElement('div');
-              title.className = 'thinking-title';
-              if (message.status === 'streaming') {
-                const label = document.createElement('span');
-                label.className = 'thinking-glow';
-                label.textContent = 'Thinking';
-                const dots = document.createElement('span');
-                dots.className = 'dots';
-                dots.innerHTML = '<span></span><span></span><span></span>';
-                title.append(label, dots);
-              } else {
-                title.textContent = 'Thinking';
-              }
-              body.append(title, content);
-              article.appendChild(body);
-            } else {
-              article.appendChild(content);
-            }
-            if (message.error) { const error = document.createElement('div'); error.className = 'error'; error.textContent = message.error; article.appendChild(error); }
-            const copy = document.createElement('button'); copy.className = 'copy'; copy.textContent = '⧉'; copy.title = 'Copy source'; copy.onclick = () => webkit.messageHandlers.copyMessage.postMessage(message.id); article.appendChild(copy);
-            return article;
-          }));
+            updateArticle(article, message, index);
+            const expectedNode = root.children[index];
+            if (expectedNode !== article) root.insertBefore(article, expectedNode || null);
+          });
           requestAnimationFrame(() => {
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
-            const atBottom = Math.ceil(window.scrollY + window.innerHeight) >= document.documentElement.scrollHeight;
-            document.body.dataset.scrolledToBottom = String(atBottom);
-            document.getElementById('scroll-status').textContent = atBottom
-              ? 'Transcript showing latest message'
-              : 'Transcript not showing latest message';
+            if (wasFollowingLatest || conversationChanged) {
+              window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+              followsLatest = true;
+              hasUnseenUpdates = false;
+            } else {
+              window.scrollTo({ top: previousScrollY, behavior: 'instant' });
+              followsLatest = false;
+              hasUnseenUpdates = true;
+            }
+            lastScrollY = window.scrollY;
+            updateJumpLatest();
           });
         }
       </script>

@@ -27,7 +27,7 @@ public enum OllamaProviderError: Error, Equatable, LocalizedError, Sendable {
     }
 }
 
-public actor OllamaProvider: ModelProvider, ModelIdentityProviding {
+public actor OllamaProvider: ModelProvider, ModelIdentityProviding, ModelCapabilityProviding {
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -116,6 +116,17 @@ public actor OllamaProvider: ModelProvider, ModelIdentityProviding {
             throw OllamaProviderError.provider("The immutable digest for model '\(model)' is unavailable.")
         }
         return digest
+    }
+
+    public func capabilities(for model: String) async throws -> ModelCapabilities {
+        let request = try makeRequest(
+            path: "api/show",
+            body: OllamaShowRequest(model: model)
+        )
+        let (data, response) = try await session.data(for: request)
+        try validate(response: response, data: data)
+        let result = try decoder.decode(OllamaShowResponse.self, from: data)
+        return ModelCapabilities(Set(result.capabilities))
     }
 
     public func stream(
@@ -244,6 +255,14 @@ private struct OllamaWarmupResponse: Decodable {
         case loadDuration = "load_duration"
         case error
     }
+}
+
+private struct OllamaShowRequest: Encodable {
+    let model: String
+}
+
+private struct OllamaShowResponse: Decodable {
+    let capabilities: [String]
 }
 
 private struct OllamaTagsResponse: Decodable {

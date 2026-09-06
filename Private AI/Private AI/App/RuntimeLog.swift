@@ -8,6 +8,7 @@ nonisolated struct ManagedRuntimeDirectory {
     let artifacts: URL
     let jobs: URL
     let state: URL
+    let browserFrames: URL
 
     init(fileManager: FileManager = .default) throws {
         root = fileManager.homeDirectoryForCurrentUser.appending(path: ".privateAI", directoryHint: .isDirectory)
@@ -17,7 +18,8 @@ nonisolated struct ManagedRuntimeDirectory {
         artifacts = root.appending(path: "artifacts", directoryHint: .isDirectory)
         jobs = root.appending(path: "jobs", directoryHint: .isDirectory)
         state = root.appending(path: "state", directoryHint: .isDirectory)
-        for directory in ["workspaces", "jobs", "logs", "artifacts", "state"] {
+        browserFrames = logs.appending(path: "browser-frames", directoryHint: .isDirectory)
+        for directory in ["workspaces", "jobs", "logs", "artifacts", "state", "logs/browser-frames"] {
             try fileManager.createDirectory(
                 at: root.appending(path: directory, directoryHint: .isDirectory),
                 withIntermediateDirectories: true

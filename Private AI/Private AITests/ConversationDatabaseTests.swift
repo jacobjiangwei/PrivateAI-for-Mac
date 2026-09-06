@@ -195,6 +195,32 @@ struct ConversationDatabaseTests {
         #expect(!forgedFinished.contains(sentinel))
     }
 
+    @Test("browser transcript omits queries typed text and URL details")
+    func browserTranscriptPrivacy() {
+        let execution = ToolExecution(
+            name: "browser",
+            arguments: [
+                "action": .string("type"),
+                "session_id": .string("session"),
+                "frame_id": .string("frame"),
+                "x": .number(20),
+                "y": .number(30),
+                "text": .string("private search phrase")
+            ],
+            content: #"{"status":"ready","validated_origin":"https://example.com","page_url":"https://example.com/search?q=private","page_title":"private search phrase","frame_id":"frame","image_width":1280,"image_height":800}"#,
+            succeeded: true,
+            images: [ModelImage(data: Data([1, 2, 3]), width: 1_280, height: 800)]
+        )
+
+        let transcript = ToolTranscriptContent.finished(execution)
+
+        #expect(transcript.contains("private search phrase") == false)
+        #expect(transcript.contains("/search?q=") == false)
+        #expect(transcript.contains("https://example.com") == true)
+        #expect(transcript.contains("frame_id") == true)
+        #expect(transcript.contains("screenshot was available") == true)
+    }
+
     @Test("deleting a conversation leaves its artifact blob eligible for cleanup")
     func deletionReleasesBlobReference() throws {
         let database = try makeDatabase()

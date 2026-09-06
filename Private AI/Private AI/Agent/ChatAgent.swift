@@ -9,6 +9,7 @@ actor ChatAgent {
     private let localResourcesRoot: URL
     private let documentSummariesRoot: URL
     private let terminalBackend: TerminalExecutionBackend?
+    private let browserBackend: (any BrowserServing)?
     private let defaultExecutionWorkspace: URL?
     private let log: RuntimeLog
     private var runtimes: [RuntimeKey: AgentRuntime] = [:]
@@ -18,6 +19,7 @@ actor ChatAgent {
         localResourcesRoot: URL,
         jobsRoot: URL,
         terminalBackend: TerminalExecutionBackend? = nil,
+        browserBackend: (any BrowserServing)? = nil,
         defaultExecutionWorkspace: URL? = nil
     ) throws {
         provider = try OllamaProvider()
@@ -27,6 +29,7 @@ actor ChatAgent {
             directoryHint: .isDirectory
         )
         self.terminalBackend = terminalBackend
+        self.browserBackend = browserBackend
         self.defaultExecutionWorkspace = defaultExecutionWorkspace?
             .standardizedFileURL.resolvingSymlinksInPath()
         localResources = LocalResourcesTool(
@@ -57,7 +60,7 @@ actor ChatAgent {
             "history_messages": String(history.count),
             "model": model
         ])
-        let runtime = try runtime(
+        let runtime = try await runtime(
             for: model,
             documentPrivacyMode: documentPrivacyMode,
             executionWorkspace: executionWorkspace,
@@ -102,7 +105,7 @@ actor ChatAgent {
     }
 
     func warmUp(model: String) async throws -> WarmupMetrics {
-        let runtime = try runtime(for: model, documentPrivacyMode: false)
+        let runtime = try await runtime(for: model, documentPrivacyMode: false)
         await log.record("agent.warmup.started", fields: ["model": model])
         do {
             let metrics = try await runtime.warmUp()
@@ -128,7 +131,7 @@ actor ChatAgent {
         managedAttachmentAccess: Bool = true,
         authorizedLocalFiles: [URL] = []
     ) async throws -> [String] {
-        let runtime = try toolRuntime(
+        let runtime = try await toolRuntime(
             for: model,
             documentPrivacyMode: documentPrivacyMode,
             executionWorkspace: executionWorkspace,
@@ -144,12 +147,18 @@ actor ChatAgent {
         executionWorkspace: URL? = nil,
         managedAttachmentAccess: Bool = false,
         authorizedLocalFiles: [URL] = []
-    ) throws -> AgentRuntime {
+    ) async throws -> AgentRuntime {
         let effectiveExecutionWorkspace = executionWorkspace
             ?? defaultExecutionWorkspace
+        let browserEnabled = if !documentPrivacyMode, browserBackend != nil {
+            (try? await provider.capabilities(for: model).supportsVisionToolUse) ?? false
+        } else {
+            false
+        }
         let key = RuntimeKey(
             model: model,
             documentPrivacyMode: documentPrivacyMode,
+            browserEnabled: browserEnabled,
             executionWorkspacePath: effectiveExecutionWorkspace?.path,
             managedAttachmentAccess: managedAttachmentAccess,
             authorizedLocalPaths: authorizedLocalFiles.map(\.path).sorted()
@@ -159,10 +168,11 @@ actor ChatAgent {
         }
         let runtime = AgentRuntime(
             provider: provider,
-            toolRuntime: try toolRuntime(
+            toolRuntime: try await toolRuntime(
                 for: model,
                 documentPrivacyMode: documentPrivacyMode,
                 executionWorkspace: effectiveExecutionWorkspace,
+                browserEnabled: browserEnabled,
                 managedAttachmentAccess: managedAttachmentAccess,
                 authorizedLocalFiles: authorizedLocalFiles
             ),
@@ -176,23 +186,36 @@ actor ChatAgent {
         for model: String,
         documentPrivacyMode: Bool,
         executionWorkspace: URL? = nil,
+        browserEnabled: Bool? = nil,
         managedAttachmentAccess: Bool = false,
         authorizedLocalFiles: [URL] = []
-    ) throws -> ToolRuntime {
+    ) async throws -> ToolRuntime {
         guard documentPrivacyMode else {
-                        guard let terminalBackend,
-                                    let executionWorkspace = executionWorkspace
-                                        ?? defaultExecutionWorkspace else {
-                return generalToolRuntime
-            }
-            return try ToolRuntime(tools: [
-                AppleServicesTool(),
-                TerminalTool(
+            var tools: [any LLMTool] = [AppleServicesTool()]
+            if let terminalBackend,
+               let executionWorkspace = executionWorkspace ?? defaultExecutionWorkspace {
+                tools.append(try TerminalTool(
                     workspace: executionWorkspace,
                     backend: terminalBackend
-                ),
-                WebTool()
-            ])
+                ))
+            }
+            let supportsBrowser: Bool
+            if let browserEnabled {
+                supportsBrowser = browserEnabled
+            } else {
+                supportsBrowser = (try? await provider.capabilities(
+                    for: model
+                ).supportsVisionToolUse) ?? false
+            }
+            if let browserBackend, supportsBrowser {
+                tools.append(BrowserTool(backend: browserBackend))
+            }
+            tools.append(WebTool())
+            if browserBackend == nil,
+               terminalBackend == nil {
+                return generalToolRuntime
+            }
+            return try ToolRuntime(tools: tools)
         }
         let roots = (managedAttachmentAccess ? [localResourcesRoot] : [])
             + authorizedLocalFiles
@@ -269,6 +292,7 @@ actor ChatAgent {
 nonisolated private struct RuntimeKey: Hashable {
     let model: String
     let documentPrivacyMode: Bool
+    let browserEnabled: Bool
     let executionWorkspacePath: String?
     let managedAttachmentAccess: Bool
     let authorizedLocalPaths: [String]

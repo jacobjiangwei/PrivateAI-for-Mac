@@ -80,6 +80,81 @@ struct AgentRuntimeTests {
         #expect(requests[1].messages.last?.content.contains("24") == true)
     }
 
+    @Test("returns Tool images to the next model request")
+    func returnsToolImagesToModel() async throws {
+        let call = ToolCall(function: ToolFunctionCall(
+            name: "vision_probe",
+            arguments: [:]
+        ))
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [.text("Saw the frame."), .completed(ModelUsage())]
+        ])
+        let image = Data([0x89, 0x50, 0x4E, 0x47])
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [ImageFixtureTool(image: image)]),
+            configuration: AgentConfiguration(model: "fixture", automaticallyWarmsUp: false)
+        )
+
+        _ = try await runtime.run(prompt: "Inspect the frame")
+        let requests = await provider.recordedRequests
+
+        #expect(requests[1].messages.last?.role == .tool)
+        #expect(requests[1].messages.last?.images.map(\.data) == [image])
+    }
+
+    @Test("keeps only the latest Tool image in later model requests")
+    func keepsOnlyLatestToolImage() async throws {
+        let call = ToolCall(function: ToolFunctionCall(
+            name: "vision_sequence",
+            arguments: [:]
+        ))
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [.toolCalls([call]), .completed(ModelUsage())],
+            [.text("done"), .completed(ModelUsage())]
+        ])
+        let tool = SequentialImageFixtureTool()
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [tool]),
+            configuration: AgentConfiguration(model: "fixture", automaticallyWarmsUp: false)
+        )
+
+        _ = try await runtime.run(prompt: "Inspect two frames")
+        let requests = await provider.recordedRequests
+        let toolMessages = requests[2].messages.filter { $0.role == .tool }
+
+        #expect(toolMessages.count == 2)
+        #expect(toolMessages[0].images.isEmpty)
+        #expect(toolMessages[1].images.map(\.data) == [Data([2])])
+    }
+
+    @Test("rejects an exclusive Tool call with sibling calls before execution")
+    func rejectsExclusiveToolSiblingCalls() async throws {
+        let calls = [
+            ToolCall(function: ToolFunctionCall(name: "exclusive_probe", arguments: [:])),
+            ToolCall(function: ToolFunctionCall(name: "web", arguments: [:]))
+        ]
+        let provider = ScriptedProvider(responses: [
+            [.toolCalls(calls), .completed(ModelUsage())]
+        ])
+        let exclusive = ExclusiveRecordingTool()
+        let regular = RecordingTool()
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [exclusive, regular]),
+            configuration: AgentConfiguration(model: "fixture", automaticallyWarmsUp: false)
+        )
+
+        await #expect(throws: AgentRuntimeError.exclusiveToolCallConflict("exclusive_probe")) {
+            try await runtime.run(prompt: "Act twice")
+        }
+        #expect(await exclusive.executionCount == 0)
+        #expect(await regular.executionCount == 0)
+    }
+
     @Test("corrects a thinking-only final round without tools or thinking")
     func correctsThinkingOnlyFinalResponse() async throws {
         let call = ToolCall(function: ToolFunctionCall(
@@ -1069,6 +1144,71 @@ private actor RecordingTool: LLMTool {
     func execute(arguments: [String: JSONValue]) async throws -> String {
         executionCount += 1
         return "{}"
+    }
+}
+
+private struct ImageFixtureTool: LLMTool {
+    let image: Data
+    let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "vision_probe",
+            description: "Returns a fixture image.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        "{}"
+    }
+
+    func executeOutput(arguments: [String: JSONValue]) async throws -> ToolOutput {
+        ToolOutput(
+            content: #"{"frame_id":"frame-1"}"#,
+            images: [ModelImage(data: image, width: 1280, height: 800)]
+        )
+    }
+}
+
+private actor ExclusiveRecordingTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "exclusive_probe",
+            description: "Requires one Tool call per model round.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+    private(set) var executionCount = 0
+
+    nonisolated func requiresExclusiveRound(arguments: [String: JSONValue]) -> Bool {
+        true
+    }
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        executionCount += 1
+        return "{}"
+    }
+}
+
+private actor SequentialImageFixtureTool: LLMTool {
+    nonisolated let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "vision_sequence",
+            description: "Returns sequential fixture images.",
+            parameters: .object(["type": .string("object")])
+        )
+    )
+    private var count = 0
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        "{}"
+    }
+
+    func executeOutput(arguments: [String: JSONValue]) async throws -> ToolOutput {
+        count += 1
+        return ToolOutput(
+            content: "{\"frame\":\(count)}",
+            images: [ModelImage(data: Data([UInt8(count)]), width: 1, height: 1)]
+        )
     }
 }
 

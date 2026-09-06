@@ -106,6 +106,17 @@ case "apple":
       return (content.contains("\"opened\":true") || content.contains("\"opened\" : true"))
         && content.contains(url)
     }, "open_url did not succeed")
+  case "browser":
+    require(toolNames.count >= 2 && toolNames.allSatisfy { $0 == "browser" }, "unexpected Tools \(toolNames)")
+    require(toolMessages.contains { ($0["content"] as? String)?.contains("\"action\" : \"open\"") == true }, "browser did not open the requested page")
+    require(toolMessages.contains { ($0["content"] as? String)?.contains("\"action\" : \"click\"") == true }, "browser did not click from the screenshot")
+    guard let browser = result["browser_activity"] as? [String: Any] else {
+      fail("browser: missing final browser activity")
+    }
+    require(browser["title"] as? String == "Links", "wrong final browser title")
+    require(browser["origin"] as? String == "https://httpbin.org", "wrong final browser origin")
+    require(browser["page_url"] as? String == "https://httpbin.org/links/3/1", "wrong final browser URL")
+    require(answer.contains("https://httpbin.org/links/3/1"), "final answer did not use the real final URL")
 default:
     fail("unknown scenario \(scenario)")
 }
@@ -132,7 +143,7 @@ run_scenario() {
 if (( $# > 0 )); then
   SCENARIOS=("$@")
 else
-  SCENARIOS=(code pdf ping apple)
+  SCENARIOS=(code pdf ping apple browser)
 fi
 for scenario in "${SCENARIOS[@]}"; do
   case "$scenario" in
@@ -158,6 +169,10 @@ for scenario in "${SCENARIOS[@]}"; do
       PRIVATEAI_EXPECTED_URL="$APPLE_URL" run_scenario apple \
         "Use native macOS services to determine the current time-zone identifier and current city, then open this exact HTTPS URL: $APPLE_URL. Base the answer only on native Tool results. End with TZ_IDENTIFIER=<identifier>, CITY=<city>, and URL_OPENED=$APPLE_URL on separate lines." \
         PRIVATEAI_ACCEPTANCE_NATIVE_GROUND_TRUTH=1
+      ;;
+    browser)
+      run_scenario browser \
+        'Open https://httpbin.org/links/3/0 in the rendered interactive website view. Inspect the screenshot, click the visible link labeled 1, inspect the resulting page, and report its exact final URL. Do not answer from memory and do not use direct page fetching.'
       ;;
     *)
       echo "Unknown acceptance scenario: $scenario" >&2

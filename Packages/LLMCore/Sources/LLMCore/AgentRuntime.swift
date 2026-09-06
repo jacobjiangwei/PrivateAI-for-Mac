@@ -92,6 +92,7 @@ public enum AgentRuntimeError: Error, Equatable, LocalizedError, Sendable {
     case emptyPrompt
     case toolRoundLimitExceeded(Int)
     case toolCallLimitExceeded(perRound: Int?, total: Int?)
+    case exclusiveToolCallConflict(String)
     case repeatedToolFailure(name: String, attempts: Int)
     case responseTooLarge(Int)
     case requiredContextTooLarge(required: Int, budget: Int)
@@ -116,6 +117,8 @@ public enum AgentRuntimeError: Error, Equatable, LocalizedError, Sendable {
             case (.none, .none):
                 "The model exceeded the configured tool-call budget."
             }
+        case .exclusiveToolCallConflict(let name):
+            "Tool '\(name)' must be the only tool call in its model round."
         case .repeatedToolFailure(let name, let attempts):
             "Tool '\(name)' failed with identical arguments \(attempts) times."
         case .responseTooLarge(let limit):
@@ -282,9 +285,6 @@ public actor AgentRuntime {
         messages.append(ChatMessage(role: .user, content: trimmedPrompt))
         let toolDefinitions = await toolRuntime.definitions
 
-        // Reserve part of the context window for generation and chat-template overhead.
-        let contextBudgetBytes = Int(Double(configuration.options.numContext) * 3.0 * 0.6)
-
         for round in 0...(configuration.maximumToolRounds + 3) {
             try Task.checkCancellation()
             let shouldFinalizeWithoutTools = forceToolFreeFinalization
@@ -302,7 +302,16 @@ public actor AgentRuntime {
             modelRequestCount += 1
             await onEvent(.modelRequestStarted(round: round))
 
-            let trim = trimMessagesToBudget(messages, budgetBytes: contextBudgetBytes)
+            let projectedMessages = retainingOnlyLatestToolImages(messages)
+            // Vision inputs are budgeted separately from their encoded bytes. Keep one
+            // frame while still reserving room for the configured final response.
+            let inputFraction = projectedMessages.contains { !$0.images.isEmpty }
+                ? 0.72
+                : 0.6
+            let contextBudgetBytes = Int(
+                Double(configuration.options.numContext) * 3.0 * inputFraction
+            )
+            let trim = trimMessagesToBudget(projectedMessages, budgetBytes: contextBudgetBytes)
             if trim.requiredBytesExceededBudget {
                 throw AgentRuntimeError.requiredContextTooLarge(
                     required: trim.requiredBytes,
@@ -402,7 +411,7 @@ public actor AgentRuntime {
                 try Task.checkCancellation()
                 return AgentResult(
                     text: responseText,
-                    messages: messages,
+                    messages: messages.map { $0.withoutImages() },
                     performance: AgentPerformance(
                         timeToFirstEventSeconds: firstEventSeconds,
                         timeToFirstTextSeconds: firstTextSeconds,
@@ -424,6 +433,13 @@ public actor AgentRuntime {
                 stabilizedCalls.append(stabilized)
             }
             proposedCalls = stabilizedCalls
+
+            if proposedCalls.count > 1,
+               let exclusiveCall = await firstExclusiveCall(in: proposedCalls) {
+                throw AgentRuntimeError.exclusiveToolCallConflict(
+                    exclusiveCall.function.name
+                )
+            }
 
             if shouldFinalizeWithoutTools {
                 messages.append(ChatMessage(
@@ -535,7 +551,8 @@ public actor AgentRuntime {
                                 name: item.call.function.name,
                                 arguments: item.call.function.arguments,
                                 content: previous.content,
-                                succeeded: true
+                                succeeded: true,
+                                images: previous.images
                             )
                         }
                     }
@@ -631,11 +648,19 @@ public actor AgentRuntime {
             )
 
             for execution in boundedExecutions {
+                if !execution.images.isEmpty {
+                    messages = messages.map { message in
+                        message.role == .tool && !message.images.isEmpty
+                            ? message.withoutImages()
+                            : message
+                    }
+                }
                 messages.append(
                     ChatMessage(
                         role: .tool,
                         content: execution.content,
-                        toolName: execution.name
+                        toolName: execution.name,
+                        images: execution.images
                     )
                 )
             }
@@ -664,6 +689,13 @@ public actor AgentRuntime {
             }
         }
         return batches
+    }
+
+    private func firstExclusiveCall(in calls: [ToolCall]) async -> ToolCall? {
+        for call in calls where await toolRuntime.requiresExclusiveRound(call) {
+            return call
+        }
+        return nil
     }
 }
 
@@ -718,8 +750,25 @@ func boundToolBatchForContext(
                 limitBytes: limits[index]
             ),
             succeeded: execution.succeeded,
-            errorType: execution.errorType
+            errorType: execution.errorType,
+            images: execution.images
         )
+    }
+}
+
+func retainingOnlyLatestToolImages(_ messages: [ChatMessage]) -> [ChatMessage] {
+    guard let latestImageToolIndex = messages.lastIndex(where: {
+        $0.role == .tool && !$0.images.isEmpty
+    }) else {
+        return messages
+    }
+    return messages.enumerated().map { index, message in
+        guard message.role == .tool,
+              !message.images.isEmpty,
+              index != latestImageToolIndex else {
+            return message
+        }
+        return message.withoutImages()
     }
 }
 
@@ -736,6 +785,13 @@ private func approximateMessageBytes(_ message: ChatMessage) -> Int {
     }
     if let toolName = message.toolName {
         total += toolName.utf8.count
+    }
+    for image in message.images {
+        if let width = image.width, let height = image.height {
+            total += max(1_024, width * height / 256)
+        } else {
+            total += 4_096
+        }
     }
     return total
 }

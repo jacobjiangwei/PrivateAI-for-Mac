@@ -17,6 +17,8 @@ struct ComposerView: View {
             }
             hint
         }
+        .frame(maxWidth: InterfaceMetrics.chatContentMaximumWidth)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, InterfaceMetrics.pageHorizontalPadding)
         .padding(.vertical, InterfaceMetrics.spacingM)
         .onAppear {

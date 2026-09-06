@@ -17,6 +17,6 @@ struct ContentView: View {
         } detail: {
             ChatDetailView(coordinator: coordinator)
         }
-        .frame(minWidth: 840, minHeight: 600)
+        .frame(minWidth: 1_100, minHeight: 680)
     }
 }

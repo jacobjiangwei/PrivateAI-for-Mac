@@ -71,6 +71,12 @@ extension ChatCoordinator {
                         .flatMap(\.attachments)
                         .count,
                     "native_ground_truth": nativeGroundTruth ?? NSNull(),
+                    "browser_activity": [
+                        "title": browser.title,
+                        "origin": browser.origin,
+                        "page_url": browser.latestPageURL,
+                        "frame_id": browser.latestFrameID?.uuidString ?? ""
+                    ],
                     "terminal_activity": terminalActivity.map {
                         [
                             "command": $0.command,

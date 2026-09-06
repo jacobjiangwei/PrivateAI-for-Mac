@@ -12,6 +12,7 @@ final class AppDependencies {
     let runtimeLog: RuntimeLog
     let artifactStore: ManagedArtifactStore
     let terminalBackend: TerminalExecutionBackend?
+    let browser: BrowserCoordinator
     let initialExecutionWorkspace: URL?
 
     init() throws {
@@ -22,6 +23,7 @@ final class AppDependencies {
         )
         runtimeLog = try RuntimeLog(directory: runtimeDirectory)
         artifactStore = try ManagedArtifactStore(root: runtimeDirectory.artifacts)
+        browser = BrowserCoordinator(framesDirectory: runtimeDirectory.browserFrames)
         let resolvedTerminalBackend: TerminalExecutionBackend?
         if let workerExecutable = Self.executionWorkerURL() {
             resolvedTerminalBackend = TerminalExecutionBackend(
@@ -58,6 +60,7 @@ final class AppDependencies {
             localResourcesRoot: runtimeDirectory.artifacts,
             jobsRoot: runtimeDirectory.jobs,
             terminalBackend: terminalBackend,
+            browserBackend: browser,
             defaultExecutionWorkspace: initialExecutionWorkspace
         )
         try database.sanitizeLegacyLocalResourceMessages()

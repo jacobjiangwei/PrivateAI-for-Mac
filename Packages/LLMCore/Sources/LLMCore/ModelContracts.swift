@@ -7,6 +7,18 @@ public enum ChatRole: String, Codable, Equatable, Sendable {
     case tool
 }
 
+public struct ModelImage: Equatable, Sendable {
+    public let data: Data
+    public let width: Int?
+    public let height: Int?
+
+    public init(data: Data, width: Int? = nil, height: Int? = nil) {
+        self.data = data
+        self.width = width
+        self.height = height
+    }
+}
+
 public struct ToolFunctionCall: Codable, Equatable, Sendable {
     public let index: Int?
     public let name: String
@@ -46,19 +58,22 @@ public struct ChatMessage: Codable, Equatable, Sendable {
     public let thinking: String?
     public let toolCalls: [ToolCall]?
     public let toolName: String?
+    public let images: [ModelImage]
 
     public init(
         role: ChatRole,
         content: String,
         thinking: String? = nil,
         toolCalls: [ToolCall]? = nil,
-        toolName: String? = nil
+        toolName: String? = nil,
+        images: [ModelImage] = []
     ) {
         self.role = role
         self.content = content
         self.thinking = thinking
         self.toolCalls = toolCalls
         self.toolName = toolName
+        self.images = images
     }
 
     public init(from decoder: any Decoder) throws {
@@ -68,6 +83,8 @@ public struct ChatMessage: Codable, Equatable, Sendable {
         self.thinking = try container.decodeIfPresent(String.self, forKey: .thinking)
         self.toolCalls = try container.decodeIfPresent([ToolCall].self, forKey: .toolCalls)
         self.toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
+        images = try container.decodeIfPresent([Data].self, forKey: .images)?
+            .map { ModelImage(data: $0) } ?? []
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -79,6 +96,9 @@ public struct ChatMessage: Codable, Equatable, Sendable {
         try container.encodeIfPresent(thinking, forKey: .thinking)
         try container.encodeIfPresent(toolCalls, forKey: .toolCalls)
         try container.encodeIfPresent(toolName, forKey: .toolName)
+        if !images.isEmpty {
+            try container.encode(images.map(\.data), forKey: .images)
+        }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -87,6 +107,17 @@ public struct ChatMessage: Codable, Equatable, Sendable {
         case thinking
         case toolCalls = "tool_calls"
         case toolName = "tool_name"
+        case images
+    }
+
+    public func withoutImages() -> ChatMessage {
+        ChatMessage(
+            role: role,
+            content: content,
+            thinking: thinking,
+            toolCalls: toolCalls,
+            toolName: toolName
+        )
     }
 }
 

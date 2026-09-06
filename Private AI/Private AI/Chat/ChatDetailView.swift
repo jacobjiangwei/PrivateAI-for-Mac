@@ -1,11 +1,34 @@
 import SwiftUI
 import LLMCore
+import WebKit
 
 struct ChatDetailView: View {
     @Bindable var coordinator: ChatCoordinator
     @State private var showsModelDetails = false
 
     var body: some View {
+        Group {
+            if coordinator.browser.isVisible {
+                HSplitView {
+                    chatPane
+                        .frame(minWidth: 440, idealWidth: 620)
+                    BrowserWorkspaceView(
+                        browser: coordinator.browser,
+                        onStop: coordinator.browser.isActive
+                            ? coordinator.stop
+                            : coordinator.browser.dismiss
+                    )
+                    .frame(minWidth: 520, idealWidth: 700, maxWidth: .infinity)
+                }
+            } else {
+                chatPane
+            }
+        }
+        .navigationTitle(coordinator.selectedConversation?.title ?? "PrivateAI")
+        .animation(.easeInOut(duration: 0.2), value: coordinator.ollama.state)
+    }
+
+    private var chatPane: some View {
         VStack(spacing: 0) {
             if coordinator.ollama.state.requiresUserAction {
                 OllamaPreflightBanner(ollama: coordinator.ollama)
@@ -37,8 +60,6 @@ struct ChatDetailView: View {
             Divider()
             ComposerView(coordinator: coordinator)
         }
-        .navigationTitle(coordinator.selectedConversation?.title ?? "PrivateAI")
-        .animation(.easeInOut(duration: 0.2), value: coordinator.ollama.state)
     }
 
     private var header: some View {
@@ -57,6 +78,7 @@ struct ChatDetailView: View {
                 }
                 .labelsHidden()
                 .frame(maxWidth: 240, minHeight: InterfaceMetrics.controlHeight)
+                .disabled(coordinator.isGenerating)
                 ModelPerformanceLabel(metrics: coordinator.generationMetrics)
                 Button {
                     showsModelDetails.toggle()
@@ -117,6 +139,125 @@ struct ChatDetailView: View {
             get: { coordinator.ollama.selectedModel },
             set: { coordinator.selectModel($0) }
         )
+    }
+}
+
+private struct BrowserWorkspaceView: View {
+    let browser: BrowserCoordinator
+    let onStop: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: InterfaceMetrics.spacingM) {
+                Image(systemName: "globe")
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: InterfaceMetrics.controlHeight)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(browser.title.isEmpty ? browser.status : browser.title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Text(browser.origin.isEmpty ? browser.status : browser.origin)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: InterfaceMetrics.spacingS) {
+                    if let frameID = browser.latestFrameID {
+                        Text(String(frameID.uuidString.prefix(8)))
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                    }
+                    Button(action: onStop) {
+                        Image(systemName: browser.isActive ? "stop.fill" : "xmark")
+                            .frame(
+                                width: InterfaceMetrics.controlHeight,
+                                height: InterfaceMetrics.controlHeight
+                            )
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.circle)
+                    .help(browser.isActive ? "Stop browser task" : "Close browser")
+                    .accessibilityIdentifier("browser.workspace.stop")
+                }
+            }
+            .padding(.horizontal, InterfaceMetrics.spacingM)
+            .frame(minHeight: 52)
+
+            Divider()
+
+            if let webView = browser.activeWebView {
+                BrowserWebViewHost(webView: webView)
+                    .allowsHitTesting(false)
+            } else if let image = browser.latestImage {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(nsColor: .textBackgroundColor))
+            } else {
+                ProgressView("Opening page")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .background(Color(nsColor: .textBackgroundColor))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("browser.workspace")
+    }
+}
+
+private struct BrowserWebViewHost: NSViewRepresentable {
+    let webView: WKWebView
+
+    func makeNSView(context: Context) -> BrowserWebViewContainer {
+        let container = BrowserWebViewContainer()
+        container.attach(webView)
+        return container
+    }
+
+    func updateNSView(_ container: BrowserWebViewContainer, context: Context) {
+        container.attach(webView)
+    }
+
+    static func dismantleNSView(
+        _ container: BrowserWebViewContainer,
+        coordinator: Void
+    ) {
+        container.detach()
+    }
+}
+
+@MainActor
+private final class BrowserWebViewContainer: NSView {
+    private weak var hostedWebView: WKWebView?
+
+    func attach(_ webView: WKWebView) {
+        guard hostedWebView !== webView else { return }
+        detach()
+        hostedWebView = webView
+        webView.removeFromSuperview()
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    func detach() {
+        if let hostedWebView {
+            NSLayoutConstraint.deactivate(
+                constraints.filter { constraint in
+                    constraint.firstItem === hostedWebView
+                        || constraint.secondItem === hostedWebView
+                }
+            )
+            hostedWebView.removeFromSuperview()
+            self.hostedWebView = nil
+        }
     }
 }
 

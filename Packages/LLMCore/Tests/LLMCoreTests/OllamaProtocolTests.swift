@@ -79,6 +79,29 @@ struct OllamaProtocolTests {
         #expect(messages[2]["content"] as? String == "28 C")
     }
 
+    @Test("encodes images on an Ollama Tool result message")
+    func imageToolResult() throws {
+      let image = Data([0x89, 0x50, 0x4E, 0x47])
+      let message = ChatMessage(
+        role: .tool,
+        content: #"{"frame_id":"frame-1"}"#,
+        toolName: "browser",
+        images: [ModelImage(data: image, width: 1280, height: 800)]
+      )
+
+      let encoded = try JSONEncoder().encode(message)
+      let object = try #require(
+        JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+      )
+      let images = try #require(object["images"] as? [String])
+
+      #expect(images == [image.base64EncodedString()])
+      #expect(object["tool_name"] as? String == "browser")
+
+      let decoded = try JSONDecoder().decode(ChatMessage.self, from: encoded)
+      #expect(decoded.images.map(\.data) == [image])
+    }
+
       @Test("decodes the provider finish reason into model usage")
       func finishReason() throws {
         let chunk = try JSONDecoder().decode(OllamaChatChunk.self, from: Data(#"""

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 @testable import LLMCore
@@ -255,6 +256,34 @@ struct LiveOllamaTests {
         #expect(finishedCalls.first?.name == "web")
         #expect(finishedCalls.first?.succeeded == true)
     }
+
+    @Test("model reads a real image returned by a Tool")
+    func imageToolResultLoop() async throws {
+        let provider = try OllamaProvider()
+        let capabilities = try await provider.capabilities(for: benchmarkModel)
+        #expect(capabilities.supportsVisionToolUse)
+        let runtime = AgentRuntime(
+            provider: provider,
+            toolRuntime: try ToolRuntime(tools: [VisualFixtureTool()]),
+            configuration: AgentConfiguration(
+                model: benchmarkModel,
+                keepAlive: "30m",
+                options: ModelOptions(numContext: 8_192, temperature: 0, numPredict: 256),
+                maximumToolCallsPerRound: 1,
+                maximumToolCallsTotal: 1,
+                automaticallyWarmsUp: false
+            )
+        )
+
+        let result = try await runtime.run(
+            prompt: "Use the visual_fixture tool. Inspect the returned image pixels and report the exact verification code printed inside the red rectangle."
+        )
+        let calls = result.messages.flatMap { $0.toolCalls ?? [] }
+
+        #expect(calls.map(\.function.name) == ["visual_fixture"])
+        #expect(result.messages.allSatisfy { $0.images.isEmpty })
+        #expect(result.text.contains("SCARLET-7391"))
+    }
 }
 
 private actor EventRecorder {
@@ -303,6 +332,70 @@ private struct TestWebTool: LLMTool {
     func execute(arguments: [String: JSONValue]) async throws -> String {
         "{\"results\":[{\"title\":\"Suzhou current weather\",\"snippet\":\"Suzhou, Jiangsu: 28 C, partly cloudy, observed now\"}]}"
     }
+}
+
+private struct VisualFixtureTool: LLMTool {
+    let definition = ToolDefinition(
+        function: ToolFunctionDefinition(
+            name: "visual_fixture",
+            description: "Return the screenshot that must be inspected to answer the request.",
+            parameters: .object([
+                "type": .string("object"),
+                "properties": .object([:]),
+                "additionalProperties": .bool(false)
+            ])
+        )
+    )
+
+    func execute(arguments: [String: JSONValue]) async throws -> String {
+        "{}"
+    }
+
+    func executeOutput(arguments: [String: JSONValue]) async throws -> ToolOutput {
+        let width = 640
+        let height = 360
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw VisualFixtureError.imageUnavailable
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        NSColor.systemRed.setFill()
+        NSRect(x: 100, y: 100, width: 440, height: 160).fill()
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.boldSystemFont(ofSize: 44),
+            .foregroundColor: NSColor.white
+        ]
+        NSString(string: "SCARLET-7391").draw(
+            at: NSPoint(x: 165, y: 155),
+            withAttributes: attributes
+        )
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw VisualFixtureError.imageUnavailable
+        }
+        return ToolOutput(
+            content: #"{"frame_id":"visual-fixture","instruction":"Read the verification code from the image pixels."}"#,
+            images: [ModelImage(data: png, width: width, height: height)]
+        )
+    }
+}
+
+private enum VisualFixtureError: Error {
+    case imageUnavailable
 }
 
 private func durationSeconds(_ duration: Duration) -> Double {

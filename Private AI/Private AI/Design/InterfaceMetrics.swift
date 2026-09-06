@@ -8,6 +8,7 @@ enum InterfaceMetrics {
 
     static let controlHeight: CGFloat = 28
     static let headerHeight: CGFloat = 44
+    static let chatContentMaximumWidth: CGFloat = 860
     static let compactCornerRadius: CGFloat = 6
     static let fieldCornerRadius: CGFloat = 8
     static let composerCornerRadius: CGFloat = 20

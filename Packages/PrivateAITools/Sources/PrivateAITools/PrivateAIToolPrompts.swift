@@ -22,6 +22,24 @@ enum PrivateAIToolPrompts {
         static let maximumResults = "Maximum search results to return."
     }
 
+    enum Browser {
+        static let name = "browser"
+        static let tool = "Control a visible public HTTPS page through screenshots. Use exactly one browser action per response, inspect every returned frame before the next action, and pass coordinates in the returned image pixel space. Use this for modern JavaScript pages, visual search results, scrolling, clicking, and non-secret text entry."
+        static let action = "One browser action. Never propose sibling Tool calls in the same response."
+        static let url = "Public HTTPS URL to open."
+        static let query = "Public web search query."
+        static let sessionID = "Browser session UUID returned by open or search."
+        static let frameID = "Latest screenshot frame UUID. Required for visual actions."
+        static let representation = "Screenshot representation. The current build supports raw."
+        static let x = "Horizontal pixel coordinate in the referenced screenshot, measured from the left."
+        static let y = "Vertical pixel coordinate in the referenced screenshot, measured from the top."
+        static let deltaX = "Horizontal scroll delta in pixels."
+        static let deltaY = "Vertical scroll delta in pixels."
+        static let text = "Non-secret text to enter at the referenced screenshot point."
+        static let mode = "Whether typing replaces or appends to the current value."
+        static let key = "Supported key to press after inspecting the latest frame."
+    }
+
     enum LocalResources {
         static let name = "local_resources"
         static let tool = "Work with local directories and documents on this Mac. List directory contents, read a bounded range, or search within a document. Use read to identify or preview a document. Use document_analysis instead only for an explicit whole-document summary, review, or comprehensive analysis; do not repeatedly walk every read cursor. Supported documents include Markdown, plain text, HTML, JSON, CSV, XML, YAML, source code, and PDF."
