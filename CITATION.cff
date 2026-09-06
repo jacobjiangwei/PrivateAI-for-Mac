@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: PrivateAI for Mac
+message: If you use PrivateAI for Mac in research or software evaluation, cite this repository.
+type: software
+authors:
+  - family-names: Jiang
+    given-names: Jacob
+repository-code: https://github.com/jacobjiangwei/PrivateAI-for-Mac
+url: https://jacobjiangwei.github.io/PrivateAI-for-Mac/
+license: Apache-2.0
+version: "1.6"
+date-released: 2026-09-06
+keywords:
+  - local AI
+  - macOS
+  - Ollama
+  - AI agent
+  - on-device AI
+  - browser computer use
+  - document analysis
+  - terminal agent
+abstract: PrivateAI for Mac is an open-source native macOS AI agent for local Ollama models, private document analysis, supervised terminal work, native Mac context, and screenshot-driven browser computer use.
