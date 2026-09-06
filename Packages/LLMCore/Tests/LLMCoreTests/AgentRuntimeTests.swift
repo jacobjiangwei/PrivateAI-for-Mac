@@ -131,14 +131,15 @@ struct AgentRuntimeTests {
         #expect(toolMessages[1].images.map(\.data) == [Data([2])])
     }
 
-    @Test("rejects an exclusive Tool call with sibling calls before execution")
-    func rejectsExclusiveToolSiblingCalls() async throws {
+    @Test("executes only the exclusive Tool from a mixed proposal")
+    func executesOnlyExclusiveToolFromMixedProposal() async throws {
         let calls = [
-            ToolCall(function: ToolFunctionCall(name: "exclusive_probe", arguments: [:])),
-            ToolCall(function: ToolFunctionCall(name: "web", arguments: [:]))
+            ToolCall(function: ToolFunctionCall(name: "web", arguments: [:])),
+            ToolCall(function: ToolFunctionCall(name: "exclusive_probe", arguments: [:]))
         ]
         let provider = ScriptedProvider(responses: [
-            [.toolCalls(calls), .completed(ModelUsage())]
+            [.toolCalls(calls), .completed(ModelUsage())],
+            [.text("Completed after the exclusive call."), .completed(ModelUsage())]
         ])
         let exclusive = ExclusiveRecordingTool()
         let regular = RecordingTool()
@@ -148,11 +149,19 @@ struct AgentRuntimeTests {
             configuration: AgentConfiguration(model: "fixture", automaticallyWarmsUp: false)
         )
 
-        await #expect(throws: AgentRuntimeError.exclusiveToolCallConflict("exclusive_probe")) {
-            try await runtime.run(prompt: "Act twice")
-        }
-        #expect(await exclusive.executionCount == 0)
+        let result = try await runtime.run(prompt: "Act twice")
+        let requests = await provider.recordedRequests
+
+        #expect(result.text == "Completed after the exclusive call.")
+        #expect(result.performance.toolCallCount == 1)
+        #expect(await exclusive.executionCount == 1)
         #expect(await regular.executionCount == 0)
+        #expect(requests.count == 2)
+        #expect(requests[1].messages.last?.role == .tool)
+        #expect(requests[1].messages.last?.toolName == "exclusive_probe")
+        #expect(requests[1].messages.dropLast().last?.toolCalls?.map(\.function.name) == [
+            "exclusive_probe"
+        ])
     }
 
     @Test("corrects a thinking-only final round without tools or thinking")

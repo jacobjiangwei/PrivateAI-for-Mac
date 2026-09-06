@@ -99,7 +99,7 @@ Read the full [Privacy Policy](docs/privacy-policy.md) and [Security Policy](SEC
 
 Download `PrivateAI.dmg` and `PrivateAI.dmg.sha256` from the [latest GitHub Release](https://github.com/jacobjiangwei/Private-AI-on-your-device/releases/latest). Releases are Developer ID signed, notarized by Apple, stapled, and Gatekeeper-validated in CI.
 
-Verify the downloaded image:
+Optional: verify the downloaded image checksum:
 
 ```bash
 shasum -a 256 -c PrivateAI.dmg.sha256

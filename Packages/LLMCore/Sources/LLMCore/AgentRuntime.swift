@@ -436,9 +436,7 @@ public actor AgentRuntime {
 
             if proposedCalls.count > 1,
                let exclusiveCall = await firstExclusiveCall(in: proposedCalls) {
-                throw AgentRuntimeError.exclusiveToolCallConflict(
-                    exclusiveCall.function.name
-                )
+                proposedCalls = [exclusiveCall]
             }
 
             if shouldFinalizeWithoutTools {
