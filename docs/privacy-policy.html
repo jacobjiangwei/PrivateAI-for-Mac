@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — PrivateAI for Mac</title>
+  <meta name="description" content="Privacy model and current data flows for PrivateAI for Mac, a local Ollama-powered macOS AI agent.">
+  <link rel="canonical" href="https://jacobjiangwei.github.io/PrivateAI-for-Mac/privacy-policy.html">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="./">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="./#capabilities">Capabilities</a><a href="./#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
+  <main>
+    <header class="article-header"><p class="eyebrow">Effective 1 September 2026</p><h1>Privacy policy</h1><p class="lede">This page describes the current checked-in PrivateAI for Mac data flow. Planned architecture is not presented as shipped behavior.</p></header>
+    <article class="article-body">
+      <h2>Core AI processing</h2>
+      <p>PrivateAI sends the system prompt, conversation context, current request, selected Tool schemas, and Tool results to the user's local Ollama service. The checked-in App does not configure a cloud model provider. Ollama is a separate local process with its own configuration and data handling.</p>
+      <h2>Data stored on the Mac</h2>
+      <p>Conversations and messages are stored in a local SwiftData database. Selected documents are copied to content-addressed managed storage under <code>~/.privateAI/artifacts</code>. Whole-document analysis checkpoints are stored under <code>~/.privateAI/jobs/document-summaries</code>.</p>
+      <p>Bounded operational metadata is written under <code>~/.privateAI/logs</code>. Current logs omit prompt text, model answer text, local document paths, local document search queries, and local document Tool output. Browser screenshots supplied to the local vision model are retained under <code>~/.privateAI/logs/browser-frames</code>.</p>
+      <h2>Network features</h2>
+      <p>PrivateAI is local-first, not network-free. Public web, Browser, and Apple service Tools contact the relevant public endpoint or Apple service when invoked. The checked-in App does not implement advertising or product analytics.</p>
+      <p>Conversations containing document attachments run in document privacy mode. That mode exposes restricted local document Tools and does not expose public Web, Browser, Terminal, or native service Tools.</p>
+      <h2>File access</h2>
+      <p>Files selected through the system picker or Finder are copied into managed storage. An explicitly referenced supported local path authorizes that exact file for the request, not sibling files or the containing directory. Searchable PDFs are read with PDFKit; scanned PDFs without a text layer are not processed with OCR.</p>
+      <h2>Security and retention</h2>
+      <p>The current development target has App Sandbox disabled. Managed artifact and log directories use owner-only permissions. Deleting a conversation removes its attachment references; unreferenced managed blobs are reclaimed by reconciliation. Deleting the App alone does not necessarily remove data under <code>~/.privateAI</code>.</p>
+      <h2>Changes and contact</h2>
+      <p>Material changes will be reflected by a new effective date. Use the repository's public support channel for privacy questions and GitHub private vulnerability reporting for security issues.</p>
+      <p>See the <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/privacy-policy.md">version-controlled policy</a> and <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/security/policy">security policy</a>.</p>
+    </article>
+  </main>
+  <footer><div class="footer-inner"><span>PrivateAI for Mac</span><span><a href="./">Home</a> · <a href="support.html">Support</a></span></div></footer>
+</body>
+</html>

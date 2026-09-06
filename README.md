@@ -1,18 +1,20 @@
 <div align="center">
 
-# PrivateAI
+# PrivateAI for Mac
 
 ### A private, native AI agent for your Mac
 
 Run local Ollama models in a polished macOS app with document analysis, supervised terminal execution, native Mac tools, and screenshot-driven browser computer use.
 
-[![Latest Release](https://img.shields.io/github/v/release/jacobjiangwei/Private-AI-on-your-device?display_name=tag&sort=semver)](https://github.com/jacobjiangwei/Private-AI-on-your-device/releases/latest)
-[![Signed macOS Build](https://github.com/jacobjiangwei/Private-AI-on-your-device/actions/workflows/signed-macos-build.yml/badge.svg)](https://github.com/jacobjiangwei/Private-AI-on-your-device/actions/workflows/signed-macos-build.yml)
-[![License](https://img.shields.io/github/license/jacobjiangwei/Private-AI-on-your-device)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/jacobjiangwei/PrivateAI-for-Mac?display_name=tag&sort=semver)](https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest)
+[![Signed macOS Build](https://github.com/jacobjiangwei/PrivateAI-for-Mac/actions/workflows/signed-macos-build.yml/badge.svg)](https://github.com/jacobjiangwei/PrivateAI-for-Mac/actions/workflows/signed-macos-build.yml)
+[![License](https://img.shields.io/github/license/jacobjiangwei/PrivateAI-for-Mac)](LICENSE)
 [![Swift](https://img.shields.io/badge/Swift-native-F05138?logo=swift&logoColor=white)](https://www.swift.org/)
 [![Ollama](https://img.shields.io/badge/Ollama-local_models-black)](https://ollama.com/)
 
-**[Download the latest signed macOS release](https://github.com/jacobjiangwei/Private-AI-on-your-device/releases/latest)**
+**[Download the latest signed macOS release](https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest)**
+&nbsp;&nbsp;·&nbsp;&nbsp;
+**[Product website](https://jacobjiangwei.github.io/PrivateAI-for-Mac/)**
 &nbsp;&nbsp;·&nbsp;&nbsp;
 **[Build from source](#build-from-source)**
 
@@ -21,6 +23,12 @@ Run local Ollama models in a polished macOS app with document analysis, supervis
 ![PrivateAI running a local vision model beside its live browser workspace](docs/images/privateai-browser-workspace.png)
 
 PrivateAI is an open-source, on-device AI assistant built specifically for macOS. Conversations and model inference stay on your Mac through Ollama. When a task needs more than chat, the Agent can inspect local documents, run supervised shell work, call native macOS services, or operate a real WebKit browser from screenshots.
+
+Common workflows are documented as standalone, searchable guides:
+
+- [Local AI browser agent for macOS](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/local-ai-browser-agent.html)
+- [Private document analysis with Ollama](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/private-document-analysis.html)
+- [Supervised terminal AI agent for Mac](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/supervised-terminal-agent.html)
 
 ## Why PrivateAI
 
@@ -97,7 +105,7 @@ Read the full [Privacy Policy](docs/privacy-policy.md) and [Security Policy](SEC
 
 ### Download
 
-Download `PrivateAI.dmg` and `PrivateAI.dmg.sha256` from the [latest GitHub Release](https://github.com/jacobjiangwei/Private-AI-on-your-device/releases/latest). Releases are Developer ID signed, notarized by Apple, stapled, and Gatekeeper-validated in CI.
+Download `PrivateAI.dmg` and `PrivateAI.dmg.sha256` from the [latest GitHub Release](https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest). Releases are Developer ID signed, notarized by Apple, stapled, and Gatekeeper-validated in CI.
 
 Optional: verify the downloaded image checksum:
 

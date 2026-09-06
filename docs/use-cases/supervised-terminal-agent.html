@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supervised Terminal AI Agent for Mac — PrivateAI for Mac</title>
+  <meta name="description" content="Run supervised local zsh commands, builds, tests, scripts, package managers, and diagnostics from a local Ollama agent on macOS.">
+  <link rel="canonical" href="https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/supervised-terminal-agent.html">
+  <link rel="stylesheet" href="../styles.css">
+  <meta property="og:title" content="Supervised Terminal AI Agent for Mac">
+  <meta property="og:description" content="Visible local command execution with bounded output, checkpoints, cancellation, timeout, and process-tree cleanup.">
+</head>
+<body>
+  <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="../">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="../#capabilities">Capabilities</a><a href="../#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
+  <main>
+    <header class="article-header">
+      <p class="eyebrow">Use case 03 · Local terminal</p>
+      <h1>Supervised terminal AI agent for Mac</h1>
+      <p class="lede">PrivateAI for Mac can let a compatible local Ollama model run visible, non-interactive shell work through a separately supervised execution worker.</p>
+    </header>
+    <article class="article-body">
+      <h2>General local command execution</h2>
+      <p>The Terminal capability is designed for ordinary command-line work rather than a fixed menu of domain actions. It can run diagnostics, scripts, builds, tests, pipelines, package managers, and other non-interactive <code>zsh</code> commands needed to answer the user's request.</p>
+      <p>Commands begin in the managed <code>~/.privateAI/workspaces/default</code> workspace unless the user explicitly chooses another folder. Selecting a folder changes the authorized working root; terminal availability does not depend on selecting a document folder.</p>
+      <h2>Visible supervision</h2>
+      <ul>
+        <li>The App shows the command, working directory, elapsed time, checkpoint status, and Stop control.</li>
+        <li>Standard output and error drain to bounded local logs instead of flooding model context.</li>
+        <li>Long-running attached commands can return bounded checkpoints while output continues draining.</li>
+        <li>Cancellation, timeout, App shutdown, worker failure, and transport timeout terminate the recorded process group.</li>
+        <li>Tool calls are serial by default unless a concrete implementation explicitly opts into safe concurrency.</li>
+      </ul>
+      <h2>Current limits</h2>
+      <p>The current terminal phase is non-interactive. It does not support persistent detached servers, PTY applications, privileged execution, or secret input. Passwords, tokens, private keys, and other secrets must not be included in prompts or Tool arguments.</p>
+      <div class="note"><strong>Security boundary:</strong> the managed workspace is an execution root and organizational boundary, not a security sandbox. PrivateAI does not claim process-level confinement that the operating system has not enforced.</div>
+      <h2>Typical workflows</h2>
+      <p>Examples include inspecting a project, running a test suite, checking a network route, invoking a compiler, processing local data, or diagnosing a process. Success is based on the real command result and final user-visible answer, not merely on the model selecting the Terminal Tool.</p>
+      <p><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download PrivateAI for Mac</a></p>
+    </article>
+  </main>
+  <footer><div class="footer-inner"><span>PrivateAI for Mac</span><span><a href="../">Home</a> · <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/product/terminal-execution-design.md">Technical details</a></span></div></footer>
+</body>
+</html>

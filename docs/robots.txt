@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jacobjiangwei.github.io/PrivateAI-for-Mac/sitemap.xml

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Private Document Analysis with Ollama — PrivateAI for Mac</title>
+  <meta name="description" content="Analyze searchable PDFs, Markdown, structured text, HTML, and source files locally on macOS with Ollama and bounded document tools.">
+  <link rel="canonical" href="https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/private-document-analysis.html">
+  <link rel="stylesheet" href="../styles.css">
+  <meta property="og:title" content="Private Document Analysis with Ollama">
+  <meta property="og:description" content="Local macOS document analysis with bounded access, resumable summaries, and document privacy mode.">
+</head>
+<body>
+  <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="../">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="../#capabilities">Capabilities</a><a href="../#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
+  <main>
+    <header class="article-header">
+      <p class="eyebrow">Use case 02 · Local documents</p>
+      <h1>Private document analysis with Ollama</h1>
+      <p class="lede">Attach a local document or reference its path, then ask a compatible Ollama model to inspect bounded source content, find details, or produce a resumable whole-document summary.</p>
+    </header>
+    <article class="article-body">
+      <h2>Supported document work</h2>
+      <p>PrivateAI for Mac currently supports searchable PDFs, Markdown, plain text, HTML, JSON, CSV, XML, YAML, and common source files. Users can select files through the system picker, drag files from Finder, or include an existing supported local path in the request.</p>
+      <p>The App copies selected attachments into private managed storage under <code>~/.privateAI/artifacts</code>. Model-facing document Tools receive bounded content and provenance instead of unrestricted filesystem access. Explicit path references authorize that exact file for the request, not its siblings or containing directory.</p>
+      <h2>Long-document analysis</h2>
+      <p>Large documents can be processed through hierarchical analysis rather than forcing the entire source into one model request. PrivateAI divides source material into bounded units, reduces intermediate summaries recursively, and saves private checkpoints under <code>~/.privateAI/jobs/document-summaries</code>. Repeating the same document, goal, and model can reuse completed work.</p>
+      <h2>Document privacy mode</h2>
+      <ul>
+        <li>Document conversations expose local resource and document analysis Tools.</li>
+        <li>Public Web, Browser, Terminal, and native service Tools are not exposed in that conversation mode.</li>
+        <li>Document bytes and extracted text are not written into ordinary Tool transcript rows or runtime logs.</li>
+        <li>Intermediate summaries and final answers may contain quoted or summarized source material and remain local.</li>
+      </ul>
+      <div class="note"><strong>Current boundary:</strong> scanned PDFs without an extractable text layer are not supported because OCR is not implemented. DOCX, EPUB, images, audio, and arbitrary binary formats are not advertised as supported document categories.</div>
+      <h2>Who this is for</h2>
+      <p>This workflow is designed for people who want a native Mac interface around local model inference: reviewing reports, searching technical references, summarizing research, understanding code or data files, and resuming long analysis without uploading source documents to a hosted model provider.</p>
+      <p><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download PrivateAI for Mac</a></p>
+    </article>
+  </main>
+  <footer><div class="footer-inner"><span>PrivateAI for Mac</span><span><a href="../">Home</a> · <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/product/document-attachments.md">Technical details</a></span></div></footer>
+</body>
+</html>

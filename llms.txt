@@ -1,0 +1,9 @@
+# PrivateAI for Mac
+
+Canonical AI-readable product index: https://jacobjiangwei.github.io/PrivateAI-for-Mac/llms.txt
+
+PrivateAI for Mac is an open-source native macOS AI agent powered by local Ollama models. It supports bounded local document analysis, supervised non-interactive terminal work, native Mac context, and screenshot-driven browser computer use.
+
+Repository: https://github.com/jacobjiangwei/PrivateAI-for-Mac
+Website: https://jacobjiangwei.github.io/PrivateAI-for-Mac/
+Latest release: https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest

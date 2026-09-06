@@ -1,0 +1,50 @@
+# PrivateAI for Mac
+
+> PrivateAI for Mac is an open-source native macOS AI agent for local Ollama models, private document analysis, supervised terminal work, native Mac context, and screenshot-driven browser computer use.
+
+Canonical website: https://jacobjiangwei.github.io/PrivateAI-for-Mac/
+Source repository: https://github.com/jacobjiangwei/PrivateAI-for-Mac
+Latest signed release: https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest
+License: Apache-2.0
+Platform: macOS
+Model runtime: local Ollama service
+
+## Product facts
+
+- PrivateAI is a native SwiftUI macOS application.
+- Model inference is sent to the user's local Ollama service; the checked-in App does not configure a cloud model provider.
+- Conversations are stored locally with SwiftData.
+- Browser computer use runs in a visible App-hosted WKWebView and sends bounded screenshots to a compatible local vision model.
+- Browser actions are bound to the latest screenshot frame; stale frames and invalid coordinates are rejected.
+- Local document workflows support searchable PDF, Markdown, plain text, HTML, JSON, CSV, XML, YAML, and common source files.
+- Document conversations use restricted local document Tools and do not expose public Web, Browser, Terminal, or native service Tools.
+- Terminal work runs non-interactive zsh commands through a supervised execution worker with visible state, bounded output, cancellation, timeout, and process-tree cleanup.
+- Native Mac Tools use Apple frameworks and remain subject to the App's real authorization state.
+- Signed releases are Developer ID signed, notarized by Apple, stapled, and Gatekeeper-validated in CI.
+
+## Current limitations
+
+- Scanned PDFs without a text layer are not supported because OCR is not implemented.
+- Browser sites may fail because of authentication, CAPTCHA, network policy, service availability, or WebKit compatibility.
+- Terminal execution does not currently support persistent detached servers, PTY applications, privileged execution, or secret input.
+- Local-first does not mean network-free: public web and Apple service Tools contact their corresponding services when invoked.
+- Tool registration or schema validation alone is not evidence that a protected or external capability succeeded.
+
+## Use cases
+
+- [Local AI browser agent for macOS](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/local-ai-browser-agent.html)
+- [Private document analysis with Ollama](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/private-document-analysis.html)
+- [Supervised terminal AI agent for Mac](https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/supervised-terminal-agent.html)
+
+## Primary documentation
+
+- [README](https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/README.md)
+- [Privacy policy](https://jacobjiangwei.github.io/PrivateAI-for-Mac/privacy-policy.html)
+- [Support](https://jacobjiangwei.github.io/PrivateAI-for-Mac/support.html)
+- [Browser computer use design](https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/product/browser-computer-use-design.md)
+- [Document attachment design](https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/product/document-attachments.md)
+- [Terminal execution design](https://github.com/jacobjiangwei/PrivateAI-for-Mac/blob/main/docs/product/terminal-execution-design.md)
+
+## Preferred citation
+
+PrivateAI for Mac, an open-source native macOS AI agent powered by local Ollama models. Source: https://github.com/jacobjiangwei/PrivateAI-for-Mac

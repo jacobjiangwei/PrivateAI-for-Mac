@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local AI Browser Agent for macOS — PrivateAI for Mac</title>
+  <meta name="description" content="Use a local Ollama vision model with a real WebKit browser on macOS for screenshot-driven public web research and interaction.">
+  <link rel="canonical" href="https://jacobjiangwei.github.io/PrivateAI-for-Mac/use-cases/local-ai-browser-agent.html">
+  <link rel="stylesheet" href="../styles.css">
+  <meta property="og:title" content="Local AI Browser Agent for macOS">
+  <meta property="og:description" content="How PrivateAI for Mac uses local Ollama vision models and screenshot-driven WebKit browser computer use.">
+  <meta property="og:image" content="https://jacobjiangwei.github.io/PrivateAI-for-Mac/images/privateai-browser-workspace.png">
+</head>
+<body>
+  <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="../">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="../#capabilities">Capabilities</a><a href="../#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
+  <main>
+    <header class="article-header">
+      <p class="eyebrow">Use case 01 · Browser computer use</p>
+      <h1>Local AI browser agent for macOS</h1>
+      <p class="lede">PrivateAI for Mac gives a compatible local Ollama model a real, visible WebKit workspace for public web research. The model works from rendered screenshots rather than assuming every website is readable static HTML.</p>
+    </header>
+    <article class="article-body">
+      <img src="../images/privateai-browser-workspace.png" alt="PrivateAI for Mac reading a National Weather Service forecast in its live browser workspace" style="width:100%;height:auto;border:1px solid var(--line);box-shadow:var(--shadow)">
+      <h2>What it does</h2>
+      <p>The Browser capability opens public HTTPS pages in an App-hosted <code>WKWebView</code>. PrivateAI captures the visible viewport, sends the bounded image to a local vision-capable model, and accepts one frame-bound action at a time. The next screenshot closes the loop before another visual action is performed.</p>
+      <p>This supports public information tasks that require JavaScript rendering, scrolling, visual layout, navigation, text entry, or buttons. The product screenshot shows a real request for current Central Park conditions and the Labor Day forecast, grounded in the official National Weather Service page visible beside the answer.</p>
+      <h2>How the control loop is bounded</h2>
+      <ul>
+        <li>Every visual action references the latest immutable screenshot frame.</li>
+        <li>Coordinates use the returned image pixel dimensions and a top-left origin.</li>
+        <li>Stale frames and out-of-bounds coordinates are rejected.</li>
+        <li>Browser sessions use an ephemeral WebKit data store instead of the user's Safari profile.</li>
+        <li>Password and file inputs require direct user interaction and are not passed as model-visible text.</li>
+        <li>The live page and current activity remain visible in the macOS App.</li>
+      </ul>
+      <h2>Local does not mean network-free</h2>
+      <p>The selected model runs through the local Ollama service. The website itself is still a public network resource, so requests and browser navigation reach that site's servers. Browser screenshots are supplied to the local model and retained locally under <code>~/.privateAI/logs/browser-frames</code> for inspection.</p>
+      <div class="note"><strong>Current boundary:</strong> arbitrary public websites can change, reject WebKit, require authentication, present CAPTCHA, or become unavailable. A successful screenshot or Tool call alone is not proof that the final user request succeeded.</div>
+      <h2>Requirements</h2>
+      <p>Browser computer use requires macOS, a running Ollama installation, and a selected local model that reports both vision and Tool-calling capabilities.</p>
+      <p><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download PrivateAI for Mac</a></p>
+    </article>
+  </main>
+  <footer><div class="footer-inner"><span>PrivateAI for Mac</span><span><a href="../">Home</a> · <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac">Source</a></span></div></footer>
+</body>
+</html>

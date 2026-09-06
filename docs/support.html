@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support — PrivateAI for Mac</title>
+  <meta name="description" content="Download help, requirements, document support, and issue reporting guidance for PrivateAI for Mac.">
+  <link rel="canonical" href="https://jacobjiangwei.github.io/PrivateAI-for-Mac/support.html">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="./">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="./#capabilities">Capabilities</a><a href="./#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
+  <main>
+    <header class="article-header"><p class="eyebrow">Help and requirements</p><h1>PrivateAI for Mac support</h1><p class="lede">PrivateAI is an actively developed native macOS assistant. Signed and notarized builds are distributed through GitHub Releases.</p></header>
+    <article class="article-body">
+      <h2>Requirements</h2>
+      <p>The App requires macOS, a running Ollama installation, and a compatible local chat model. Browser computer use additionally requires a model that reports vision and Tool-calling capabilities.</p>
+      <h2>Download and install</h2>
+      <p>Download <code>PrivateAI.dmg</code> and, optionally, <code>PrivateAI.dmg.sha256</code> from the <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">latest release</a>. Builds are Developer ID signed, notarized, stapled, and Gatekeeper-validated in CI.</p>
+      <p>The checksum is an optional integrity check:</p>
+      <pre><code>shasum -a 256 -c PrivateAI.dmg.sha256</code></pre>
+      <h2>Document analysis</h2>
+      <p>Attach a supported document with the paperclip button or Finder drag and drop, or explicitly include its local path in the request. Searchable PDFs and text-based formats support bounded reads and resumable hierarchical summaries. Scanned PDFs without extractable text are not currently supported.</p>
+      <h2>Reporting a problem</h2>
+      <p>Open a <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/issues">GitHub issue</a> with the App version, macOS version, selected model, exact error, and reproducible steps. Do not post sensitive documents, chat transcripts, browser screenshots, API keys, credentials, or private data.</p>
+      <p>Report security vulnerabilities privately through the repository's <a href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/security/policy">security policy</a>.</p>
+    </article>
+  </main>
+  <footer><div class="footer-inner"><span>PrivateAI for Mac</span><span><a href="./">Home</a> · <a href="privacy-policy.html">Privacy</a></span></div></footer>
+</body>
+</html>

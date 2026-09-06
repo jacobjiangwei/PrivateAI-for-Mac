@@ -17,7 +17,7 @@ inspect files -> edit files -> run a real build or test command
 ```
 
 During development and end-to-end acceptance, a test may select the current
-`Private-AI-on-your-device` checkout or another isolated fixture. These paths are test
+`PrivateAI-for-Mac` checkout or another isolated fixture. These paths are test
 configuration, not product configuration. The shipped App starts in
 `~/.privateAI/workspaces/default`; a user-selected folder replaces that filesystem root
 for tasks that need broader local access.

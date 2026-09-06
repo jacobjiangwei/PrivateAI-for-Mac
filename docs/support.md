@@ -18,7 +18,7 @@ Open `Private AI/Private AI.xcodeproj` in a compatible Xcode version and build t
 
 ## Downloaded release
 
-Download `PrivateAI.dmg` and `PrivateAI.dmg.sha256` from the same GitHub Release. Verify the checksum before opening the DMG. Releases are signed with Developer ID, notarized by Apple, and assessed by Gatekeeper in CI before publication.
+Download `PrivateAI.dmg` and, optionally, `PrivateAI.dmg.sha256` from the same GitHub Release. The checksum provides an optional integrity check before opening the DMG. Releases are signed with Developer ID, notarized by Apple, and assessed by Gatekeeper in CI before publication.
 
 ## Contact
 
