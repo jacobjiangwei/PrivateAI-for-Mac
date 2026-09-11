@@ -48,10 +48,8 @@ final class AppDependencies {
             ? nil
             : runtimeDirectory.defaultWorkspace
         #endif
-        let schema = Schema(versionedSchema: PrivateAISchemaV2.self)
-        container = try ModelContainer(
-            for: schema,
-            migrationPlan: PrivateAISchemaMigrationPlan.self
+        container = try ConversationStore.makeContainer(
+            stateDirectory: runtimeDirectory.state
         )
         database = ConversationDatabase(container: container)
         ollama = OllamaServiceController(log: runtimeLog)
