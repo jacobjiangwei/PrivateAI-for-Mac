@@ -716,7 +716,8 @@ final class ChatCoordinator {
     }
 
     private func jsonNumber(_ value: Double?) -> Any {
-        value.map(NSNumber.init(value:)) ?? NSNull()
+        guard let value else { return NSNull() }
+        return NSNumber(value: value)
     }
 
     private func toolCallData(

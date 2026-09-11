@@ -501,6 +501,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PrivateAI uses calendars when you ask it to inspect or manage calendar information.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "PrivateAI uses contacts only when you ask it to search contact information.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -540,6 +541,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription = "PrivateAI uses calendars when you ask it to inspect or manage calendar information.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "PrivateAI uses contacts only when you ask it to search contact information.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
