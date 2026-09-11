@@ -4,6 +4,7 @@ import CoreText
 import Foundation
 import LLMCore
 import PrivateAITools
+import WebKit
 
 @MainActor
 extension ChatCoordinator {
@@ -51,14 +52,24 @@ extension ChatCoordinator {
             guard canSend else {
                 throw AcceptanceScenarioError.cannotSend
             }
+            if environment["PRIVATEAI_ACCEPTANCE_TRACE"] == "1" {
+                try await installTranscriptObservation()
+            }
             try writeAcceptanceResult(["status": "sending"], to: resultURL)
             send()
             let timeoutSeconds = environment["PRIVATEAI_ACCEPTANCE_TIMEOUT_SECONDS"]
                 .flatMap(Int.init) ?? 600
-            try await waitUntilGenerationFinishes(timeout: .seconds(timeoutSeconds))
+            let thinkingRateObserved = try await waitUntilGenerationFinishes(timeout: .seconds(timeoutSeconds))
 
             let assistant = try requireLastMessage(role: .assistant)
-            let toolMessages = messages.filter { $0.role == .tool }
+            let toolMessages = messages.filter { $0.role == .tool || $0.role == .toolResult }
+            let visualTrace: [String: Any]
+            if environment["PRIVATEAI_ACCEPTANCE_TRACE"] == "1" {
+                visualTrace = try await inspectTranscript(assistant: assistant)
+                try writeWindowSnapshot(beside: resultURL)
+            } else {
+                visualTrace = [:]
+            }
             try writeAcceptanceResult(
                 [
                     "status": "completed",
@@ -66,6 +77,23 @@ extension ChatCoordinator {
                     "assistant_content": assistant.content,
                     "assistant_status": assistant.status.rawValue,
                     "assistant_error": assistant.errorMessage ?? "",
+                    "thinking_rate_observed": thinkingRateObserved,
+                    "visual_trace": visualTrace,
+                    "metrics": [
+                        "received_chunks": generationMetrics.receivedChunkCount,
+                        "thinking_characters": generationMetrics.thinkingCharacterCount,
+                        "output_tokens": generationMetrics.outputTokenCount,
+                        "input_tokens": generationMetrics.promptTokenCount,
+                        "request_count": generationMetrics.requestCount,
+                        "request_bytes": generationMetrics.requestBytes,
+                        "tool_schema_bytes": generationMetrics.toolSchemaBytes,
+                        "ttft_seconds": generationMetrics.ttftSeconds ?? -1,
+                        "first_answer_seconds": generationMetrics.firstAnswerSeconds ?? -1,
+                        "final_tokens_per_second": generationMetrics.finalTokensPerSecond ?? -1
+                    ],
+                    "trace_messages": environment["PRIVATEAI_ACCEPTANCE_TRACE"] == "1" ? messages.map {
+                        ["role": $0.role.rawValue, "content": $0.content, "status": $0.status.rawValue, "metadata": $0.toolName ?? ""]
+                    } : [],
                     "attachment_count": messages
                         .filter { $0.role == .user }
                         .flatMap(\.attachments)
@@ -104,7 +132,9 @@ extension ChatCoordinator {
                 to: resultURL
             )
         }
-        NSApplication.shared.terminate(nil)
+        if environment["PRIVATEAI_ACCEPTANCE_KEEP_OPEN"] != "1" {
+            NSApplication.shared.terminate(nil)
+        }
         #endif
     }
 
@@ -119,15 +149,115 @@ extension ChatCoordinator {
         throw AcceptanceScenarioError.ollamaUnavailable
     }
 
-    private func waitUntilGenerationFinishes(timeout: Duration) async throws {
+    private func waitUntilGenerationFinishes(timeout: Duration) async throws -> Bool {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
+        var thinkingRateObserved = false
         while clock.now < deadline {
-            if !isGenerating { return }
+            if generationMetrics.firstAnswerSeconds == nil,
+               generationMetrics.thinkingCharacterCount > 0,
+               (generationMetrics.estimatedTokensPerSecond(at: Date()) ?? 0) > 0 {
+                thinkingRateObserved = true
+            }
+            if !isGenerating { return thinkingRateObserved }
             try await clock.sleep(for: .milliseconds(100))
         }
         stop()
         throw AcceptanceScenarioError.generationTimedOut
+    }
+
+    private func installTranscriptObservation() async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while ContinuousClock.now < deadline {
+            if let webView = TranscriptWebView.acceptanceWebView, !webView.isLoading {
+                if let width = ProcessInfo.processInfo.environment["PRIVATEAI_ACCEPTANCE_WINDOW_WIDTH"].flatMap(Double.init) {
+                    webView.window?.setContentSize(NSSize(width: max(760, width), height: 820))
+                }
+                _ = try await webView.callAsyncJavaScript(
+                    """
+                    window.traceObservation = {thinkingUpdates: 0, answerUpdates: 0, thinkingVisibleUpdates: 0};
+                    const lengths = new Map();
+                    let frame = 0;
+                    const observer = new MutationObserver(() => {
+                      if (frame) return;
+                      frame = requestAnimationFrame(() => {
+                        frame = 0;
+                        for (const article of document.querySelectorAll('article.thinking, article.assistant')) {
+                          const content = article.querySelector('.content.streaming');
+                          if (!content || content.classList.contains('waiting')) continue;
+                          const length = content.textContent.length;
+                          if (length <= (lengths.get(article.id) || 0)) continue;
+                          lengths.set(article.id, length);
+                          if (article.classList.contains('thinking')) {
+                            traceObservation.thinkingUpdates++;
+                            const rect = content.getBoundingClientRect();
+                            if (rect.bottom > 0 && rect.top < innerHeight) traceObservation.thinkingVisibleUpdates++;
+                          } else { traceObservation.answerUpdates++; }
+                        }
+                      });
+                    });
+                    observer.observe(document.getElementById('messages'), {childList: true, subtree: true, characterData: true});
+                    """,
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw AcceptanceScenarioError.transcriptUnavailable
+    }
+
+    private func inspectTranscript(assistant: MessageRecord) async throws -> [String: Any] {
+        guard let webView = TranscriptWebView.acceptanceWebView else {
+            throw AcceptanceScenarioError.transcriptUnavailable
+        }
+        let rawMessages = messages.filter { $0.role == .modelInput || $0.role == .toolCall || $0.role == .toolResult }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while ContinuousClock.now < deadline {
+            let result = try await webView.callAsyncJavaScript(
+                """
+                const complete = !document.querySelector('article.assistant .content.streaming');
+                                const rawMatches = raw.every(message => {
+                                    const article = document.getElementById('message-' + message.id);
+                                    return article?.renderedMessage.content === message.content
+                                        && article?.querySelector('pre')?.textContent === rawDisplayText(message);
+                                });
+                                const inputs = Array.from(document.querySelectorAll('article.modelInput'));
+                                const formattedInputs = inputs.filter(article => {
+                                    try {
+                                        return article.querySelector('pre')?.textContent === JSON.stringify(JSON.parse(article.renderedMessage.content), null, 2)
+                                            && article.querySelectorAll('details').length === 1;
+                                    } catch { return false; }
+                                }).length;
+                const answer = document.getElementById('message-' + assistantID)?.querySelector('.content')?.textContent || '';
+                                return {complete, rawMatches, answer, formattedInputs, inputCount: inputs.length, observation: window.traceObservation || {},
+                  roles: Array.from(document.querySelectorAll('article'), article => article.className),
+                  overflow: document.documentElement.scrollWidth > innerWidth};
+                """,
+                arguments: [
+                    "raw": rawMessages.map { ["id": $0.id.uuidString, "role": $0.role.rawValue, "content": $0.content] },
+                    "assistantID": assistant.id.uuidString
+                ], in: nil, contentWorld: .page
+            )
+            if let values = result as? [String: Any], values["complete"] as? Bool == true,
+               values["rawMatches"] as? Bool == true, !(values["answer"] as? String ?? "").isEmpty {
+                return values
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        throw AcceptanceScenarioError.transcriptUnavailable
+    }
+
+    private func writeWindowSnapshot(beside result: URL) throws {
+        guard let view = TranscriptWebView.acceptanceWebView?.window?.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw AcceptanceScenarioError.transcriptUnavailable
+        }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw AcceptanceScenarioError.transcriptUnavailable
+        }
+        try data.write(to: result.deletingPathExtension().appendingPathExtension("png"))
     }
 
     private func waitUntilAttachmentImportFinishes(timeout: Duration) async throws {
@@ -234,6 +364,7 @@ extension ChatCoordinator {
 
 #if DEBUG
 private enum AcceptanceScenarioError: Error, LocalizedError {
+    case transcriptUnavailable
     case assistantMessageMissing
     case attachmentImportFailed(String)
     case attachmentImportRejected
@@ -246,6 +377,8 @@ private enum AcceptanceScenarioError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .transcriptUnavailable:
+            "The production transcript was not rendered before the deadline."
         case .assistantMessageMissing:
             "The production conversation has no assistant message."
         case .attachmentImportFailed(let message):

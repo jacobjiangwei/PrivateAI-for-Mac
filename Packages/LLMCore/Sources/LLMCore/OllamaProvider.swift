@@ -72,18 +72,31 @@ public actor OllamaProvider: ModelProvider, ModelIdentityProviding, ModelCapabil
         let request = try makeRequest(path: "api/generate", body: requestBody)
         let clock = ContinuousClock()
         let start = clock.now
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
+        let trace = ModelRequestTrace(request: request, purpose: .modelWarmup)
+        await ModelTrace.emit(.request(trace))
+        do {
+            let (data, response) = try await session.data(for: request)
+            try validate(response: response, data: data)
 
-        let result = try decoder.decode(OllamaWarmupResponse.self, from: data)
-        if let error = result.error {
-            throw OllamaProviderError.provider(error)
+            let result = try decoder.decode(OllamaWarmupResponse.self, from: data)
+            if let error = result.error {
+                throw OllamaProviderError.provider(error)
+            }
+
+            await ModelTrace.emit(.output(
+                id: trace.id,
+                event: .completed(ModelUsage(loadDurationNanoseconds: result.loadDuration)),
+                at: Date()
+            ))
+
+            return WarmupMetrics(
+                elapsedSeconds: seconds(from: start.duration(to: clock.now)),
+                providerLoadSeconds: result.loadDuration.map(nanosecondsToSeconds)
+            )
+        } catch {
+            await ModelTrace.emit(.failed(id: trace.id, message: error.localizedDescription))
+            throw error
         }
-
-        return WarmupMetrics(
-            elapsedSeconds: seconds(from: start.duration(to: clock.now)),
-            providerLoadSeconds: result.loadDuration.map(nanosecondsToSeconds)
-        )
     }
 
     public func unload(model: String) async throws {
@@ -133,6 +146,20 @@ public actor OllamaProvider: ModelProvider, ModelIdentityProviding, ModelCapabil
         _ modelRequest: ModelRequest
     ) async throws -> AsyncThrowingStream<ModelStreamEvent, any Error> {
         let request = try makeRequest(path: "api/chat", body: modelRequest)
+        let trace = ModelRequestTrace(request: request)
+        await ModelTrace.emit(.request(trace))
+        do {
+            return try await responseStream(for: request, traceID: trace.id)
+        } catch {
+            await ModelTrace.emit(.failed(id: trace.id, message: error.localizedDescription))
+            throw error
+        }
+    }
+
+    private func responseStream(
+        for request: URLRequest,
+        traceID: UUID
+    ) async throws -> AsyncThrowingStream<ModelStreamEvent, any Error> {
         let (bytes, response) = try await session.bytes(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -173,20 +200,25 @@ public actor OllamaProvider: ModelProvider, ModelIdentityProviding, ModelCapabil
                             throw OllamaProviderError.provider(error)
                         }
                         if let thinking = chunk.message?.thinking, !thinking.isEmpty {
+                            await ModelTrace.emit(.output(id: traceID, event: .thinking(thinking), at: Date()))
                             continuation.yield(.thinking(thinking))
                         }
                         if let text = chunk.message?.content, !text.isEmpty {
+                            await ModelTrace.emit(.output(id: traceID, event: .text(text), at: Date()))
                             continuation.yield(.text(text))
                         }
                         if let toolCalls = chunk.message?.toolCalls, !toolCalls.isEmpty {
+                            await ModelTrace.emit(.output(id: traceID, event: .toolCalls(toolCalls), at: Date()))
                             continuation.yield(.toolCalls(toolCalls))
                         }
                         if chunk.done {
+                            await ModelTrace.emit(.output(id: traceID, event: .completed(chunk.usage), at: Date()))
                             continuation.yield(.completed(chunk.usage))
                         }
                     }
                     continuation.finish()
                 } catch {
+                    await ModelTrace.emit(.failed(id: traceID, message: error.localizedDescription))
                     continuation.finish(throwing: error)
                 }
             }

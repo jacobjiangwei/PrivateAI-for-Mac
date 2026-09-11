@@ -36,6 +36,10 @@ struct ChatDetailView: View {
                 Divider()
             }
             header
+            if coordinator.ollama.state.isReady {
+                Divider()
+                ModelPerformanceSection(metrics: coordinator.generationMetrics)
+            }
             if coordinator.isGenerating, let terminal = coordinator.terminalActivity {
                 Divider()
                 TerminalActivityView(
@@ -79,7 +83,6 @@ struct ChatDetailView: View {
                 .labelsHidden()
                 .frame(maxWidth: 240, minHeight: InterfaceMetrics.controlHeight)
                 .disabled(coordinator.isGenerating)
-                ModelPerformanceLabel(metrics: coordinator.generationMetrics)
                 Button {
                     showsModelDetails.toggle()
                 } label: {
@@ -459,31 +462,66 @@ private struct ModelTransparencyView: View {
     }
 }
 
-private struct ModelPerformanceLabel: View {
+struct ModelPerformanceSection: View {
     let metrics: GenerationMetrics
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.1)) { context in
-            Label {
-                Text(metrics.statusText(at: context.date))
-                    .monospacedDigit()
-            } icon: {
-                Image(systemName: "gauge.with.dots.needle.33percent")
+            VStack(alignment: .leading, spacing: 10) {
+                Label("Generation", systemImage: "gauge.with.dots.needle.33percent")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 125), alignment: .leading)], alignment: .leading, spacing: 12) {
+                    metric(
+                        metrics.finalTokensPerSecond == nil ? "Token rate (estimate)" : "Token rate (actual)",
+                        value: rate(at: context.date),
+                        id: "generation.tokenRate"
+                    )
+                    .help("Live estimate assumes one nonempty thinking or text chunk per token. Ollama supplies exact token counts only when each request finishes.")
+                    metric("First output (TTFT)", value: seconds(metrics.elapsedToFirstOutput(at: context.date)), id: "generation.ttft")
+                    metric("First answer", value: seconds(metrics.firstAnswerSeconds), id: "generation.firstAnswer")
+                    metric("Received chunks", value: String(metrics.receivedChunkCount), id: "generation.chunks")
+                    metric("Output tokens (actual)", value: metrics.completedRequestCount > 0 ? String(metrics.outputTokenCount) : "Pending", id: "generation.outputTokens")
+                        .help("Sum reported by completed model requests, including thinking. The in-flight request is counted when it finishes.")
+                    metric("Input tokens (actual)", value: metrics.completedRequestCount > 0 ? String(metrics.promptTokenCount) : "Pending", id: "generation.inputTokens")
+                        .help("Sum of prompt tokens evaluated across completed requests, including repeated context.")
+                    metric("Latest request", value: bytes(metrics.requestBytes), id: "generation.requestBytes")
+                    metric("Tool definitions (approx.)", value: bytes(metrics.toolSchemaBytes), id: "generation.toolBytes")
+                    metric("Model requests", value: String(metrics.requestCount), id: "generation.requests")
+                    metric("Model load", value: seconds(metrics.hasLoadDuration ? metrics.loadSeconds : nil), id: "generation.load")
+                    metric("Prompt evaluation", value: seconds(metrics.hasPromptDuration ? metrics.promptSeconds : nil), id: "generation.prefill")
+                }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .frame(width: 190, height: InterfaceMetrics.controlHeight, alignment: .center)
-            .padding(.horizontal, InterfaceMetrics.controlHorizontalPadding)
-            .background(.quaternary, in: RoundedRectangle(
-                cornerRadius: InterfaceMetrics.compactCornerRadius
-            ))
-            .contentShape(Rectangle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityIdentifier("model.performance.label")
-            .accessibilityLabel(
-                "Model performance, \(metrics.statusText(at: context.date))"
-            )
+            .padding(.horizontal, InterfaceMetrics.pageHorizontalPadding)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.background.secondary)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("generation.metrics.section")
         }
+    }
+
+    private func metric(_ title: String, value: String, id: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(.system(.callout, design: .monospaced)).monospacedDigit()
+                .textSelection(.enabled)
+                .accessibilityIdentifier(id)
+        }
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+    }
+
+    private func rate(at date: Date) -> String {
+        if let actual = metrics.finalTokensPerSecond { return String(format: "%.1f tok/s", actual) }
+        guard let estimate = metrics.estimatedTokensPerSecond(at: date) else { return "Pending" }
+        return String(format: "~%.1f tok/s", estimate)
+    }
+
+    private func seconds(_ value: Double?) -> String {
+        value.map { String(format: "%.2f s", $0) } ?? "Pending"
+    }
+
+    private func bytes(_ count: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
 }

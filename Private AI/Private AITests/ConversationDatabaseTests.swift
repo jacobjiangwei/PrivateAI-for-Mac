@@ -49,6 +49,26 @@ struct ConversationDatabaseTests {
         #expect(assistant.errorMessage == "The previous response was interrupted.")
     }
 
+    @Test("appends streaming content before final persistence")
+    func streamingContent() throws {
+        let database = try makeDatabase()
+        let conversation = try database.createConversation(modelName: "fixture")
+        let assistant = try database.appendMessage(
+            to: conversation,
+            role: .assistant,
+            content: "",
+            status: .streaming
+        )
+
+        database.appendStreamingContent("First", to: assistant)
+        database.appendStreamingContent(" token", to: assistant)
+        try database.update(assistant, status: .complete)
+
+        #expect(assistant.content == "First token")
+        #expect(assistant.status == .complete)
+        #expect(try database.conversations().first?.messages.first?.content == "First token")
+    }
+
     @Test("orders tool events before the final assistant response")
     func orderedToolTranscript() throws {
         let database = try makeDatabase()
@@ -244,6 +264,30 @@ struct ConversationDatabaseTests {
         try database.removeUnreferencedArtifactBlobs()
 
         #expect(try database.referencedArtifactPaths().isEmpty)
+    }
+
+    @Test("legacy privacy migration preserves new raw Tool records")
+    func preservesRawRecordsDuringMigration() throws {
+        let database = try makeDatabase()
+        let conversation = try database.createConversation(modelName: "fixture")
+        let legacy = try database.appendMessage(
+            to: conversation, role: .tool, content: "Legacy private content",
+            status: .complete, toolName: "local_resources"
+        )
+        let call = try database.appendMessage(
+            to: conversation, role: .toolCall, content: #"{"path":"report.pdf"}"#,
+            status: .complete, toolName: "local_resources"
+        )
+        let result = try database.appendMessage(
+            to: conversation, role: .toolResult, content: #"{"text":"Requested raw evidence"}"#,
+            status: .complete, toolName: "local_resources"
+        )
+        try database.sanitizeLegacyLocalResourceMessages()
+        #expect(!legacy.content.contains("Legacy private content"))
+        #expect(call.content == #"{"path":"report.pdf"}"#)
+        #expect(result.content == #"{"text":"Requested raw evidence"}"#)
+        try database.sanitizeLegacyLocalResourceMessages()
+        #expect(result.content == #"{"text":"Requested raw evidence"}"#)
     }
 
     private func makeDatabase() throws -> ConversationDatabase {

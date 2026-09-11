@@ -81,7 +81,12 @@ actor ChatAgent {
                     await onEvent(progress)
                 }
             }) {
-                try await runtime.run(prompt: prompt, history: history, onEvent: onEvent)
+                try await ModelTrace.$handler.withValue({ trace in
+                    await onEvent(.modelTrace(trace))
+                }) {
+                    let modelPrompt = try DeviceContext().appending(to: prompt)
+                    return try await runtime.run(prompt: modelPrompt, history: history, onEvent: onEvent)
+                }
             }
             await log.record("agent.request.finished", fields: [
                 "model": model,
@@ -104,11 +109,16 @@ actor ChatAgent {
         }
     }
 
-    func warmUp(model: String) async throws -> WarmupMetrics {
+    func warmUp(
+        model: String,
+        onTrace: @escaping ModelTrace.Handler = { _ in }
+    ) async throws -> WarmupMetrics {
         let runtime = try await runtime(for: model, documentPrivacyMode: false)
         await log.record("agent.warmup.started", fields: ["model": model])
         do {
-            let metrics = try await runtime.warmUp()
+            let metrics = try await ModelTrace.$handler.withValue(onTrace) {
+                try await runtime.warmUp()
+            }
             await log.record("agent.warmup.finished", fields: [
                 "elapsed_seconds": String(metrics.elapsedSeconds),
                 "model": model,

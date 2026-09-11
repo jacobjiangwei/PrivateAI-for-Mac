@@ -65,6 +65,7 @@ public struct AgentPerformance: Equatable, Sendable {
 }
 
 public enum AgentEvent: Equatable, Sendable {
+    case modelTrace(ModelTraceEvent)
     case modelRequestStarted(round: Int)
     case modelRequestFinished(round: Int, usage: ModelUsage)
     case thinking(String)
@@ -216,7 +217,9 @@ public actor AgentRuntime {
                 numPredict: 1
             )
         )
-        let stream = try await provider.stream(request)
+        let stream = try await ModelTrace.$purpose.withValue(.prefixWarmup) {
+            try await provider.stream(request)
+        }
         var usage: ModelUsage?
 
         for try await event in stream {
@@ -335,7 +338,9 @@ public actor AgentRuntime {
                 options: configuration.options
             )
 
-            let stream = try await provider.stream(request)
+            let stream = try await ModelTrace.$purpose.withValue(.conversation(round: round + 1)) {
+                try await provider.stream(request)
+            }
             var responseText = ""
             var responseThinking = ""
             var proposedCalls: [ToolCall] = []

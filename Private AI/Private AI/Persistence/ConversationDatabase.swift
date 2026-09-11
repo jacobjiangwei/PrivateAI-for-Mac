@@ -124,6 +124,10 @@ final class ConversationDatabase {
         try context.save()
     }
 
+    func appendStreamingContent(_ delta: String, to message: MessageRecord) {
+        message.content.append(delta)
+    }
+
     func moveToEnd(_ message: MessageRecord) throws {
         guard let conversation = message.conversation else { return }
         message.sequence = (conversation.messages.map(\.sequence).max() ?? 0) + 1
@@ -149,7 +153,7 @@ final class ConversationDatabase {
 
     func sanitizeLegacyLocalResourceMessages() throws {
         let descriptor = FetchDescriptor<MessageRecord>(
-            predicate: #Predicate { $0.toolName == "local_resources" }
+            predicate: #Predicate { $0.toolName == "local_resources" && $0.roleRawValue == "tool" }
         )
         var changed = false
         for message in try context.fetch(descriptor) {

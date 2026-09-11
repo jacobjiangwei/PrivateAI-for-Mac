@@ -11,12 +11,14 @@
 <body>
   <header class="site-header"><nav class="nav" aria-label="Primary navigation"><a class="brand" href="./">PrivateAI <span>for Mac</span></a><div class="nav-links"><a href="./#capabilities">Capabilities</a><a href="./#use-cases">Use cases</a><a class="button" href="https://github.com/jacobjiangwei/PrivateAI-for-Mac/releases/latest">Download</a></div></nav></header>
   <main>
-    <header class="article-header"><p class="eyebrow">Effective 1 September 2026</p><h1>Privacy policy</h1><p class="lede">This page describes the current checked-in PrivateAI for Mac data flow. Planned architecture is not presented as shipped behavior.</p></header>
+    <header class="article-header"><p class="eyebrow">Effective 11 September 2026</p><h1>Privacy policy</h1><p class="lede">This page describes the current checked-in PrivateAI for Mac data flow. Planned architecture is not presented as shipped behavior.</p></header>
     <article class="article-body">
       <h2>Core AI processing</h2>
       <p>PrivateAI sends the system prompt, conversation context, current request, selected Tool schemas, and Tool results to the user's local Ollama service. The checked-in App does not configure a cloud model provider. Ollama is a separate local process with its own configuration and data handling.</p>
+      <p>Each user turn includes a compact snapshot of local date and time, UTC offset, time zone, locale, up to three preferred languages, macOS version, and processor architecture. The task retains that same snapshot across Tool rounds. It excludes device and account names, serial numbers, and location; locale is not treated as location.</p>
       <h2>Data stored on the Mac</h2>
       <p>Conversations and messages are stored in a local SwiftData database. Selected documents are copied to content-addressed managed storage under <code>~/.privateAI/artifacts</code>. Whole-document analysis checkpoints are stored under <code>~/.privateAI/jobs/document-summaries</code>.</p>
+      <p>The conversation database also stores raw model request bodies, thinking, intermediate and final answers, Tool arguments, and full Tool result text. These records may include document text, paths, queries, summaries, and encoded images. They are persistent local records, not temporary previews, and are excluded from subsequent model history. Deleting a conversation deletes its diagnostic message rows. Secret interactive terminal input must not enter these records.</p>
       <p>Bounded operational metadata is written under <code>~/.privateAI/logs</code>. Current logs omit prompt text, model answer text, local document paths, local document search queries, and local document Tool output. Browser screenshots supplied to the local vision model are retained under <code>~/.privateAI/logs/browser-frames</code>.</p>
       <h2>Network features</h2>
       <p>PrivateAI is local-first, not network-free. Public web, Browser, and Apple service Tools contact the relevant public endpoint or Apple service when invoked. The checked-in App does not implement advertising or product analytics.</p>

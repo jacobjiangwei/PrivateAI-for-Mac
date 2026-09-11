@@ -29,6 +29,9 @@ final class ChatCoordinator {
     let ollama: OllamaServiceController
 
     private let database: ConversationDatabase
+    private let modelTraceTranscript: ModelTraceTranscript
+    private var warmupTraceEvents: [ModelTraceEvent] = []
+    private var currentAssistantID: UUID?
     private let agent: ChatAgent
     private let log: RuntimeLog
     private let artifactStore: ManagedArtifactStore
@@ -36,11 +39,12 @@ final class ChatCoordinator {
     private var generationTask: Task<Void, Never>?
     private var activeGenerationConversationID: UUID?
     private var attachmentImportTask: Task<Void, Never>?
-    private var pendingToolMessageIDs: [UUID] = []
+    private var pendingToolMessages: [(id: UUID, name: String, arguments: [String: JSONValue])] = []
     private var thinkingMessageID: UUID?
 
     init(dependencies: AppDependencies) {
         database = dependencies.database
+        modelTraceTranscript = ModelTraceTranscript(database: dependencies.database)
         agent = dependencies.agent
         log = dependencies.runtimeLog
         artifactStore = dependencies.artifactStore
@@ -206,7 +210,7 @@ final class ChatCoordinator {
             let hasDocumentToolHistory = DocumentConversationPolicy.hasDocumentToolHistory(
                 toolNames: conversation.messages.compactMap(\.toolName)
             )
-            let history = modelHistory(for: conversation)
+            let history = Self.modelHistory(for: conversation)
             let turn = try database.appendUserTurn(
                 to: conversation,
                 prompt: prompt,
@@ -216,6 +220,11 @@ final class ChatCoordinator {
             let sentAttachments = pendingAttachments
             let modelPrompt = AttachmentModelContentBuilder.content(for: turn.user)
             let assistant = turn.assistant
+            currentAssistantID = assistant.id
+            for event in warmupTraceEvents {
+                try modelTraceTranscript.consume(event, in: conversation, before: assistant)
+            }
+            warmupTraceEvents.removeAll()
             let hasManagedAttachments = conversation.messages.contains {
                 !$0.attachments.isEmpty
             }
@@ -228,10 +237,10 @@ final class ChatCoordinator {
             attachmentError = nil
             isGenerating = true
             terminalActivity = nil
-            pendingToolMessageIDs = []
+            pendingToolMessages = []
             thinkingMessageID = nil
             generationMetrics.start()
-            activity = "Thinking"
+            activity = "Preparing request"
             Task {
                 await log.record("chat.generation.started", fields: [
                     "conversation_id": conversation.id.uuidString,
@@ -282,7 +291,8 @@ final class ChatCoordinator {
                             documentPrivacyMode: documentPrivacyMode
                         )
                     }
-                    try database.update(assistant, content: result.text, status: .complete)
+                    let finalAssistant = conversation.messages.first { $0.id == self.currentAssistantID } ?? assistant
+                    try database.update(finalAssistant, content: result.text, status: .complete)
                     generationMetrics.finish(performance: result.performance)
                     await log.record("chat.generation.finished", fields: [
                         "conversation_id": conversationID.uuidString,
@@ -312,7 +322,7 @@ final class ChatCoordinator {
                 } catch is CancellationError {
                     generationMetrics.stop()
                     try? database.update(
-                        assistant,
+                        conversation.messages.first { $0.id == self.currentAssistantID } ?? assistant,
                         status: .interrupted,
                         errorMessage: "Generation stopped."
                     )
@@ -331,7 +341,7 @@ final class ChatCoordinator {
                 } catch {
                     generationMetrics.stop()
                     try? database.update(
-                        assistant,
+                        conversation.messages.first { $0.id == self.currentAssistantID } ?? assistant,
                         status: .failed,
                         errorMessage: error.localizedDescription
                     )
@@ -349,6 +359,12 @@ final class ChatCoordinator {
                         conversationID: conversationID,
                         data: ["error": String(describing: error)]
                     )
+                }
+                completeThinkingMessage(in: conversation)
+                let finalStatus = conversation.messages.first { $0.id == self.currentAssistantID }?.status ?? .failed
+                try? modelTraceTranscript.finish(in: conversation, status: finalStatus)
+                for message in conversation.messages where message.status == .streaming {
+                    try? database.update(message, status: finalStatus == .complete ? .interrupted : finalStatus)
                 }
                 isGenerating = false
                 if activeGenerationConversationID == conversationID {
@@ -404,12 +420,45 @@ final class ChatCoordinator {
         documentPrivacyMode: Bool
     ) async {
         guard let conversation = conversations.first(where: { $0.id == conversationID }),
-              let assistant = conversation.messages.first(where: { $0.id == assistantID })
+              let assistant = conversation.messages.first(where: { $0.id == (currentAssistantID ?? assistantID) })
         else {
             return
         }
         switch event {
+        case .modelTrace(let trace):
+            if case .request(let request) = trace {
+                generationMetrics.recordRequest(request)
+            }
+            if case .output(let id, let output, let date) = trace,
+               let purpose = modelTraceTranscript.purpose(for: id), !purpose.isWarmup {
+                switch output {
+                case .thinking(let text): generationMetrics.recordThinking(text, at: date)
+                case .text(let text):
+                    let isAnswer: Bool
+                    if case .conversation = purpose { isAnswer = true } else { isAnswer = false }
+                    generationMetrics.recordText(text, at: date, isAnswer: isAnswer)
+                case .completed(let usage): generationMetrics.recordUsage(usage)
+                case .toolCalls: break
+                }
+            }
+            do {
+                try modelTraceTranscript.consume(trace, in: conversation, before: assistant)
+            } catch {
+                activity = "Could not save model trace: \(error.localizedDescription)"
+            }
+            transcriptRevision += 1
         case .modelRequestStarted(let round):
+            activity = "Waiting for model"
+            completeThinkingMessage(in: conversation)
+            thinkingMessageID = nil
+            if round > 0, !assistant.content.isEmpty {
+                assistant.role = .modelOutput
+                try? database.update(assistant, status: .complete)
+                let next = try? database.appendMessage(
+                    to: conversation, role: .assistant, content: "", status: .streaming
+                )
+                currentAssistantID = next?.id ?? assistant.id
+            }
             await log.record(
                 "model.request.started",
                 category: "model",
@@ -443,36 +492,37 @@ final class ChatCoordinator {
                 try? database.moveToEnd(assistant)
             }
             if let thinkingMessage {
-                try? database.update(
-                    thinkingMessage,
-                    content: thinkingMessage.content + delta
-                )
+                database.appendStreamingContent(delta, to: thinkingMessage)
                 transcriptRevision += 1
             }
-            await log.record(
-                "model.thinking.delta",
-                category: "model",
-                runID: runID,
-                conversationID: conversationID,
-                data: ["characters": delta.count]
-            )
         case .text(let delta):
             completeThinkingMessage(in: conversation)
-            generationMetrics.recordText(delta)
-            _ = try? database.update(assistant, content: assistant.content + delta)
+            let isFirstText = assistant.content.isEmpty
+            database.appendStreamingContent(delta, to: assistant)
             transcriptRevision += 1
             activity = "Responding"
-            await log.record(
-                assistant.content == delta ? "model.text.first" : "model.text.delta",
-                category: "model",
-                runID: runID,
-                conversationID: conversationID,
-                data: [
-                    "characters": delta.count,
-                    "total_characters": assistant.content.count
-                ]
-            )
+            if isFirstText {
+                await log.record(
+                    "model.text.first",
+                    category: "model",
+                    runID: runID,
+                    conversationID: conversationID,
+                    data: ["characters": delta.count]
+                )
+            }
         case .toolCallsProposed(let round, let calls):
+            completeThinkingMessage(in: conversation)
+            for call in calls {
+                _ = try? database.appendMessage(
+                    to: conversation,
+                    role: .toolCall,
+                    content: encodedJSON(.object(call.function.arguments)),
+                    status: .complete,
+                    toolName: call.function.name
+                )
+            }
+            try? database.moveToEnd(assistant)
+            transcriptRevision += 1
             await log.record(
                 "model.tool_calls.proposed",
                 category: "model",
@@ -491,16 +541,12 @@ final class ChatCoordinator {
             }
             if let toolMessage = try? database.appendMessage(
                 to: conversation,
-                role: .tool,
-                content: ToolTranscriptContent.started(
-                    name: name,
-                    arguments: arguments,
-                    documentPrivacyMode: documentPrivacyMode
-                ),
+                role: .toolResult,
+                content: "",
                 status: .streaming,
                 toolName: name
             ) {
-                pendingToolMessageIDs.append(toolMessage.id)
+                pendingToolMessages.append((id: toolMessage.id, name: name, arguments: arguments))
                 try? database.moveToEnd(assistant)
                 transcriptRevision += 1
             }
@@ -530,15 +576,14 @@ final class ChatCoordinator {
             if execution.name == "terminal" {
                 finishTerminalActivity(execution)
             }
-            if let toolMessageID = pendingToolMessageIDs.first {
-                pendingToolMessageIDs.removeFirst()
+            if let index = pendingToolMessages.firstIndex(where: {
+                $0.name == execution.name && $0.arguments == execution.arguments
+            }) {
+                let toolMessageID = pendingToolMessages.remove(at: index).id
                 if let toolMessage = conversation.messages.first(where: { $0.id == toolMessageID }) {
                     try? database.update(
                         toolMessage,
-                        content: ToolTranscriptContent.finished(
-                            execution,
-                            documentPrivacyMode: documentPrivacyMode
-                        ),
+                        content: execution.content,
                         status: execution.succeeded ? .complete : .failed,
                         errorMessage: execution.succeeded ? nil : "Tool execution failed."
                     )
@@ -716,7 +761,9 @@ final class ChatCoordinator {
         guard ollama.state.isReady, !model.isEmpty else { return }
         warmupState = "Preparing model and stable prompt prefix"
         do {
-            let metrics = try await agent.warmUp(model: model)
+            let metrics = try await agent.warmUp(model: model) { [weak self] event in
+                await self?.recordWarmupTrace(event)
+            }
             guard ollama.selectedModel == model else { return }
             warmupElapsedSeconds = metrics.elapsedSeconds
             warmupPrefixTokens = metrics.prefixPromptTokenCount
@@ -731,7 +778,18 @@ final class ChatCoordinator {
         }
     }
 
-    private func modelHistory(for conversation: ConversationRecord) -> [ChatMessage] {
+    private func recordWarmupTrace(_ event: ModelTraceEvent) {
+        if let id = activeGenerationConversationID,
+           let conversation = conversations.first(where: { $0.id == id }) {
+            let assistant = conversation.messages.first { $0.id == currentAssistantID }
+            try? modelTraceTranscript.consume(event, in: conversation, before: assistant)
+            transcriptRevision += 1
+        } else {
+            warmupTraceEvents.append(event)
+        }
+    }
+
+    static func modelHistory(for conversation: ConversationRecord) -> [ChatMessage] {
         conversation.messages
             .sorted { $0.sequence < $1.sequence }
             .compactMap { message in
@@ -744,7 +802,7 @@ final class ChatCoordinator {
                     )
                 case .assistant:
                     return ChatMessage(role: .assistant, content: message.content)
-                case .thinking, .tool:
+                case .thinking, .tool, .modelInput, .toolCall, .toolResult, .modelOutput:
                     return nil
                 }
             }

@@ -2,7 +2,7 @@
 
 ## Product behavior
 
-PrivateAI imports selected documents into managed local storage and associates them with a user message. Exact local details use bounded `local_resources` reads or searches. Whole-document summaries and reviews use `document_analysis`, which summarizes every extractable PDF page or text chunk to private local checkpoints and recursively reduces those summaries until one bounded result remains. Document bytes and extracted text are not stored in message rows or eagerly inserted into every model request.
+PrivateAI imports selected documents into managed local storage and associates them with a user message. Exact local details use bounded `local_resources` reads or searches. Whole-document summaries and reviews use `document_analysis`, which summarizes every extractable PDF page or text chunk to private local checkpoints and recursively reduces those summaries until one bounded result remains. Source content is not eagerly inserted into every model request. Raw model-input and Tool-result transcript rows do persist the content actually sent or returned, including extracted text and intermediate summaries.
 
 Users can select multiple documents from the composer or drop Finder file URLs onto it. Import must finish before send. A turn requires a non-empty user request and accepts up to 8 documents of 20 MiB each.
 
@@ -74,7 +74,7 @@ The defaults cover up to 32 MiB of extracted text, 8,192 segments, and 4,096 mod
 
 Each local-model request has a ten-minute deadline. Leaf and reduction responses both use JSON Schema constrained decoding; malformed, truncated, or timed-out groups enter the same finite adaptive split path instead of invalidating completed siblings.
 
-The App reports privacy-safe internal request progress while the Tool runs: leaf versus reduction phase, input count, completed checkpoint count, and Ollama output tokens per second. It does not emit document text, task text, paths, or intermediate summaries into the transcript or runtime log.
+The App reports internal request progress while the Tool runs: leaf versus reduction phase, input count, completed checkpoint count, and Ollama output tokens per second. The local transcript also stores raw auxiliary requests and model output, which can contain document text, task text, paths, and intermediate summaries. Runtime logs remain metadata-only. Diagnostic transcript rows are excluded from future model history.
 
 Request and global deadlines are cooperative at the `ModelProvider` boundary. The production Ollama provider uses cancellable `URLSession` tasks. A future non-cooperative provider would require an isolated, terminable worker process before the same value could be described as a hard deadline.
 

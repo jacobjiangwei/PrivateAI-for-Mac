@@ -6,6 +6,10 @@ enum PersistedMessageRole: String, Codable, Sendable {
     case assistant
     case thinking
     case tool
+    case modelInput
+    case toolCall
+    case toolResult
+    case modelOutput
 }
 
 enum PersistedMessageStatus: String, Codable, Sendable {

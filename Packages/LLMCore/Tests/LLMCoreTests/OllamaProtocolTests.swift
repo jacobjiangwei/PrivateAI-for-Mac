@@ -4,6 +4,20 @@ import Testing
 
 @Suite("Ollama Protocol")
 struct OllamaProtocolTests {
+  @Test("trace retains the exact encoded request including tools and images")
+  func rawRequestTrace() throws {
+    let body = #"{"model":"fixture","messages":[{"role":"system","content":"rules"},{"role":"tool","content":"result","images":["AQID"]}],"tools":[{"type":"function","function":{"name":"read","parameters":{"type":"object"}}}]}"#
+    var request = URLRequest(url: URL(string: "http://127.0.0.1:11434/api/chat")!)
+    request.httpBody = Data(body.utf8)
+    let trace = ModelRequestTrace(request: request, purpose: .conversation(round: 1))
+    #expect(trace.body == body)
+    #expect(trace.byteCount == request.httpBody?.count)
+    #expect(trace.toolSchemaByteCount > 0)
+    #expect(trace.endpoint == "/api/chat")
+    let restored = try JSONDecoder().decode(ModelRequestTrace.self, from: JSONEncoder().encode(trace))
+    #expect(restored == trace)
+  }
+
     @Test("round-trips the official assistant tool-call message shape")
     func officialToolCallRoundTrip() throws {
         let json = Data(

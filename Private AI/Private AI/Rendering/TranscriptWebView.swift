@@ -4,9 +4,12 @@ import SwiftUI
 
 struct TranscriptWebView: NSViewRepresentable {
     let messages: [MessageRecord]
-  let revision: Int
+    let revision: Int
     let onCopy: (UUID) -> Void
     static let resourceBaseURL = TranscriptResources.baseURL
+    #if DEBUG
+    @MainActor static weak var acceptanceWebView: WKWebView?
+    #endif
 
     func makeCoordinator() -> Coordinator {
         Coordinator(onCopy: onCopy)
@@ -20,17 +23,21 @@ struct TranscriptWebView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         context.coordinator.webView = webView
+        #if DEBUG
+        Self.acceptanceWebView = webView
+        #endif
         webView.loadHTMLString(Self.document, baseURL: Self.resourceBaseURL)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-      _ = revision
+        _ = revision
         context.coordinator.onCopy = onCopy
         context.coordinator.render(messages)
     }
 
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.stopRendering()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "copyMessage")
     }
 
@@ -39,48 +46,86 @@ struct TranscriptWebView: NSViewRepresentable {
         weak var webView: WKWebView?
         var onCopy: (UUID) -> Void
         private var isReady = false
-        private var pendingMessages: [MessageRecord] = []
+        private var pendingPayload: [[String: Any]]?
+        private var renderTask: Task<Void, Never>?
+        private var renderedMessages: [String: NSDictionary] = [:]
 
         init(onCopy: @escaping (UUID) -> Void) {
             self.onCopy = onCopy
         }
 
         func render(_ messages: [MessageRecord]) {
-            pendingMessages = messages
-            guard isReady, let webView else { return }
-            let payload: [[String: Any]] = messages.map {
+            pendingPayload = messages.map {
                 [
                     "id": $0.id.uuidString,
                     "role": $0.role.rawValue,
                     "content": $0.content,
                     "status": $0.status.rawValue,
                     "error": $0.errorMessage ?? "",
-                "tool": $0.toolName ?? "",
-                "attachments": $0.attachments
-                  .sorted { $0.sortOrder < $1.sortOrder }
-                  .compactMap { attachment -> [String: Any]? in
-                    guard let blob = attachment.blob else { return nil }
-                    return [
-                      "name": attachment.displayName,
-                      "format": blob.formatRawValue,
-                      "size": blob.byteCount
-                    ]
-                  }
+                    "tool": $0.toolName ?? "",
+                    "attachments": $0.attachments
+                        .sorted { $0.sortOrder < $1.sortOrder }
+                        .compactMap { attachment -> [String: Any]? in
+                            guard let blob = attachment.blob else { return nil }
+                            return [
+                                "name": attachment.displayName,
+                                "format": blob.formatRawValue,
+                                "size": blob.byteCount
+                            ]
+                        }
                 ]
             }
-            Task { @MainActor in
-              _ = try? await webView.callAsyncJavaScript(
-                "render(messages)",
-                arguments: ["messages": payload],
-                in: nil,
-                contentWorld: .page
-              )
+            schedulePendingRender()
+        }
+
+        func stopRendering() {
+            renderTask?.cancel()
+            renderTask = nil
+            pendingPayload = nil
+            renderedMessages = [:]
+            webView = nil
+        }
+
+        private func schedulePendingRender() {
+            guard isReady,
+                  renderTask == nil,
+                  let webView,
+                  let payload = pendingPayload
+            else {
+                return
+            }
+            pendingPayload = nil
+            let changed = payload.filter { message in
+              guard let id = message["id"] as? String,
+                  let previous = renderedMessages[id] else { return true }
+              return !previous.isEqual(to: message)
+            }
+            let ids = payload.compactMap { $0["id"] as? String }
+            renderTask = Task { @MainActor [weak self, weak webView] in
+                guard let self, let webView else { return }
+              do {
+                _ = try await webView.callAsyncJavaScript(
+                  "renderPatch(messages, ids)",
+                  arguments: ["messages": changed, "ids": ids],
+                  in: nil,
+                  contentWorld: .page
+                )
+                renderedMessages = Dictionary(uniqueKeysWithValues: payload.compactMap { message in
+                  guard let id = message["id"] as? String else { return nil }
+                  return (id, message as NSDictionary)
+                })
+              } catch {
+                renderedMessages = [:]
+              }
+                guard !Task.isCancelled else { return }
+                renderTask = nil
+                schedulePendingRender()
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             isReady = true
-            render(pendingMessages)
+            schedulePendingRender()
         }
 
         func userContentController(
@@ -88,7 +133,7 @@ struct TranscriptWebView: NSViewRepresentable {
             didReceive message: WKScriptMessage
         ) {
             guard let rawID = message.body as? String, let id = UUID(uuidString: rawID) else { return }
-          onCopy(id)
+            onCopy(id)
         }
     }
 
@@ -113,6 +158,14 @@ struct TranscriptWebView: NSViewRepresentable {
         article.tool .content { font-family: ui-monospace, monospace; line-height: 1.45; }
         article.tool .content p { margin: .35em 0; }
         article.tool .content pre { max-height: 240px; margin: 8px 0; }
+        .message-heading { font-size: 12px; font-weight: 600; color: GrayText; margin-bottom: 6px; }
+        .message-metadata { font-size: 11px; color: GrayText; overflow-wrap: anywhere; margin: 4px 0 8px; }
+        article.modelInput, article.toolCall, article.toolResult {
+          border-left: 2px solid color-mix(in srgb, AccentColor 45%, GrayText);
+          padding-left: 12px;
+        }
+        .raw-body { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.5; }
+        details.raw-record > summary { cursor: pointer; font-size: 11px; color: GrayText; }
         article.thinking { padding: 0 42px 0 0; color: GrayText; font-size: 13px; }
         article.thinking .thinking-title { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 8px; }
         article.thinking .thinking-body { border-left: 2px solid color-mix(in srgb, GrayText 40%, transparent); padding: 8px 12px; }
@@ -271,19 +324,45 @@ struct TranscriptWebView: NSViewRepresentable {
             message.attachments || []
           ]);
         }
+        function rawDisplayText(message) {
+          const source = message.content || '';
+          if (message.role === 'modelInput') {
+            try { return JSON.stringify(JSON.parse(source), null, 2); }
+            catch { return source; }
+          }
+          return source;
+        }
         function updateArticle(article, message, index) {
-          const signature = messageSignature(message);
           article.dataset.sequence = String(index);
+          if (article.renderedMessage === message) return;
+          article.renderedMessage = message;
+          const signature = messageSignature(message);
           if (article.dataset.signature === signature) return;
           article.dataset.signature = signature;
           article.className = message.role;
-          article.setAttribute('aria-label', message.role === 'tool'
-            ? `Tool ${message.tool}, ${message.status}`
-            : `${message.role} message, ${message.status}`);
+          const titles = {
+            user: 'You', modelInput: 'AI input (raw)', thinking: 'AI thinking',
+            toolCall: 'AI tool call', toolResult: 'Tool result', tool: 'Tool (legacy)',
+            assistant: 'AI reply', modelOutput: 'AI reply (intermediate)'
+          };
+          article.setAttribute('aria-label', `${titles[message.role] || message.role}, ${message.status}`);
+          const previousDetails = article.querySelector('details.raw-record');
+          const rawOpen = previousDetails ? previousDetails.open : true;
           article.replaceChildren();
+          const heading = document.createElement('div');
+          heading.className = 'message-heading';
+          heading.textContent = titles[message.role] || message.role;
+          article.appendChild(heading);
+          if (message.tool) {
+            const metadata = document.createElement('div');
+            metadata.className = 'message-metadata';
+            metadata.textContent = message.tool;
+            article.appendChild(metadata);
+          }
           const content = document.createElement('div');
           const isStreaming = message.status === 'streaming';
           const hasText = (message.content || '').trim().length > 0;
+          const isRaw = ['modelInput', 'toolCall', 'toolResult'].includes(message.role);
           const isWaiting = isStreaming && !hasText && message.role !== 'thinking';
           content.className = 'content'
             + (isStreaming ? ' streaming' : '')
@@ -293,6 +372,11 @@ struct TranscriptWebView: NSViewRepresentable {
             dots.className = 'dots';
             dots.innerHTML = '<span></span><span></span><span></span>';
             content.appendChild(dots);
+          } else if (isRaw) {
+            const raw = document.createElement('pre');
+            raw.className = 'raw-body';
+            raw.textContent = rawDisplayText(message);
+            content.appendChild(raw);
           } else {
             content.innerHTML = markdown(message.content || '');
             renderMath(content);
@@ -308,7 +392,15 @@ struct TranscriptWebView: NSViewRepresentable {
             }
             article.appendChild(attachments);
           }
-          if (message.role === 'thinking') {
+          if (isRaw) {
+            const details = document.createElement('details');
+            details.className = 'raw-record';
+            details.open = rawOpen;
+            const summary = document.createElement('summary');
+            summary.textContent = message.role === 'modelInput' ? 'Raw request body' : 'Raw payload';
+            details.append(summary, content);
+            article.appendChild(details);
+          } else if (message.role === 'thinking') {
             const body = document.createElement('div');
             body.className = 'thinking-body';
             const title = document.createElement('div');
@@ -392,6 +484,15 @@ struct TranscriptWebView: NSViewRepresentable {
           updateJumpLatest();
           window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
         });
+        const messageStore = new Map();
+        function renderPatch(messages, ids) {
+          const keep = new Set(ids);
+          for (const id of messageStore.keys()) {
+            if (!keep.has(id)) messageStore.delete(id);
+          }
+          for (const message of messages) messageStore.set(message.id, message);
+          render(ids.map(id => messageStore.get(id)).filter(Boolean));
+        }
         function render(messages) {
           const root = document.getElementById('messages');
           const wasFollowingLatest = followsLatest;

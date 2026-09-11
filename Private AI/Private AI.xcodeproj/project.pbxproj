@@ -505,12 +505,13 @@
 				INFOPLIST_KEY_NSContactsUsageDescription = "PrivateAI uses contacts only when you ask it to search contact information.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocationUsageDescription = "PrivateAI uses your location only when you ask for location-aware assistance.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PrivateAI uses your location only when you ask for location-aware assistance.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PrivateAI uses reminders when you ask it to inspect or manage reminder information.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jacobjiangwei.privateai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -543,12 +544,13 @@
 				INFOPLIST_KEY_NSContactsUsageDescription = "PrivateAI uses contacts only when you ask it to search contact information.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocationUsageDescription = "PrivateAI uses your location only when you ask for location-aware assistance.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "PrivateAI uses your location only when you ask for location-aware assistance.";
 				INFOPLIST_KEY_NSRemindersFullAccessUsageDescription = "PrivateAI uses reminders when you ask it to inspect or manage reminder information.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jacobjiangwei.privateai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -570,7 +572,7 @@
 				DEVELOPMENT_TEAM = WA29CC2SZR;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobjiangwei.Private-AITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -591,7 +593,7 @@
 				DEVELOPMENT_TEAM = WA29CC2SZR;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.5;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobjiangwei.Private-AITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -610,7 +612,7 @@
 				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = WA29CC2SZR;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobjiangwei.Private-AIUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -629,7 +631,7 @@
 				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = WA29CC2SZR;
 				GENERATE_INFOPLIST_FILE = YES;
-				MARKETING_VERSION = 1.6;
+				MARKETING_VERSION = 1.7;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.jacobjiangwei.Private-AIUITests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;

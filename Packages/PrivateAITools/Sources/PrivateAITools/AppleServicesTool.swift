@@ -12,6 +12,7 @@ public enum AppleServicesToolError: Error, Equatable, LocalizedError, Sendable {
     case authorizationRequired(service: String, status: String)
     case locationUnavailable
     case locationTimedOut
+    case locationAuthorizationTimedOut
     case operationFailed(String)
 
     public var errorDescription: String? {
@@ -22,6 +23,8 @@ public enum AppleServicesToolError: Error, Equatable, LocalizedError, Sendable {
             "The current location is not available."
         case .locationTimedOut:
             "Timed out while waiting for the current location."
+        case .locationAuthorizationTimedOut:
+            "Location authorization did not complete. Bring PrivateAI to the foreground and respond to the macOS permission prompt, or check System Settings > Privacy & Security > Location Services. No location was obtained."
         case .operationFailed(let message):
             message
         }
@@ -512,63 +515,105 @@ private func currentLocationFromSystem() async throws -> CLLocation {
 /// Uses startUpdatingLocation because single-shot requestLocation gives up with the
 /// transient kCLErrorLocationUnknown (code 0) when no cached fix exists yet.
 @MainActor
-private final class LocationCoordinator: NSObject, @preconcurrency CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
+protocol LocationManaging: AnyObject {
+    var delegate: (any CLLocationManagerDelegate)? { get set }
+    var authorizationStatus: CLAuthorizationStatus { get }
+    var desiredAccuracy: CLLocationAccuracy { get set }
+    func requestWhenInUseAuthorization()
+    func startUpdatingLocation()
+    func stopUpdatingLocation()
+}
+
+extension CLLocationManager: LocationManaging {}
+
+@MainActor
+final class LocationCoordinator: NSObject, @preconcurrency CLLocationManagerDelegate {
+    private let manager: any LocationManaging
+    private let diagnosticHandler: ToolDiagnostics.Handler?
     private var continuation: CheckedContinuation<CLLocation, Error>?
     private var timeoutTask: Task<Void, Never>?
     private var started = false
+    private var timeout: Duration = .seconds(30)
 
-    override init() {
+    init(manager: any LocationManaging = CLLocationManager()) {
+        self.manager = manager
+        diagnosticHandler = ToolDiagnostics.handler
         super.init()
         manager.delegate = self
     }
 
     func currentLocation(timeout: Duration) async throws -> CLLocation {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                guard !Task.isCancelled else { return }
-                self?.finish(.failure(AppleServicesToolError.locationTimedOut))
+        try Task.checkCancellation()
+        guard continuation == nil else {
+            throw AppleServicesToolError.operationFailed("A location request is already active.")
+        }
+        self.timeout = timeout
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.continuation = continuation
+                let status = manager.authorizationStatus
+                record("apple.location.authorization.checked", data: [
+                    "status": locationAuthorizationName(status)
+                ])
+                switch status {
+                case .denied, .restricted:
+                    finish(.failure(AppleServicesToolError.authorizationRequired(
+                        service: "location",
+                        status: locationAuthorizationName(status)
+                    )))
+                case .notDetermined:
+                    scheduleTimeout(authorization: true)
+                    record("apple.location.authorization.requested")
+                    manager.requestWhenInUseAuthorization()
+                case .authorized, .authorizedAlways:
+                    beginUpdating()
+                @unknown default:
+                    finish(.failure(AppleServicesToolError.authorizationRequired(
+                        service: "location",
+                        status: locationAuthorizationName(status)
+                    )))
+                }
             }
-            let status = manager.authorizationStatus
-            Task { await ToolDiagnostics.record("apple.location.authorization.checked", data: [
-                "status": locationAuthorizationName(status)
-            ]) }
-            switch status {
-            case .denied, .restricted:
-                finish(.failure(AppleServicesToolError.authorizationRequired(
-                    service: "location",
-                    status: locationAuthorizationName(status)
-                )))
-            case .notDetermined:
-                Task { await ToolDiagnostics.record("apple.location.authorization.requested") }
-                manager.requestWhenInUseAuthorization()
-            case .authorized, .authorizedAlways:
-                beginUpdating()
-            @unknown default:
-                finish(.failure(AppleServicesToolError.authorizationRequired(
-                    service: "location",
-                    status: locationAuthorizationName(status)
-                )))
-            }
+        } onCancel: {
+            Task { @MainActor in self.finish(.failure(CancellationError())) }
         }
     }
 
-    func stop() {
+    private func scheduleTimeout(authorization: Bool) {
         timeoutTask?.cancel()
-        timeoutTask = nil
-        manager.stopUpdatingLocation()
-        continuation = nil
+        timeoutTask = Task { [weak self, timeout] in
+            do { try await Task.sleep(for: timeout) }
+            catch { return }
+            guard let self, continuation != nil else { return }
+            let error: AppleServicesToolError = authorization ? .locationAuthorizationTimedOut : .locationTimedOut
+            finish(.failure(error))
+            record(
+                authorization ? "apple.location.authorization.timed_out" : "apple.location.request.timed_out",
+                level: "warning",
+                data: ["status": locationAuthorizationName(manager.authorizationStatus)]
+            )
+        }
+    }
+
+    private func record(_ event: String, level: String = "info", data: [String: String] = [:]) {
+        guard let diagnosticHandler else { return }
+        let diagnostic = ToolDiagnostic(event: event, level: level, data: data)
+        Task { await diagnosticHandler(diagnostic) }
+    }
+
+    func stop() {
+        finish(.failure(CancellationError()))
+        manager.delegate = nil
     }
 
     private func beginUpdating() {
-        guard !started else { return }
+        guard continuation != nil, !started else { return }
         started = true
+        scheduleTimeout(authorization: false)
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        Task { await ToolDiagnostics.record("apple.location.request.started", data: [
+        record("apple.location.request.started", data: [
             "mode": "continuous_updates"
-        ]) }
+        ])
         manager.startUpdatingLocation()
     }
 
@@ -578,14 +623,18 @@ private final class LocationCoordinator: NSObject, @preconcurrency CLLocationMan
         timeoutTask?.cancel()
         timeoutTask = nil
         manager.stopUpdatingLocation()
+        started = false
         continuation.resume(with: result)
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let status = manager.authorizationStatus
-        Task { await ToolDiagnostics.record("apple.location.authorization.changed", data: [
+        authorizationChanged(to: manager.authorizationStatus)
+    }
+
+    func authorizationChanged(to status: CLAuthorizationStatus) {
+        record("apple.location.authorization.changed", data: [
             "status": locationAuthorizationName(status)
-        ]) }
+        ])
         guard continuation != nil else { return }
         switch status {
         case .authorized, .authorizedAlways:
@@ -606,17 +655,21 @@ private final class LocationCoordinator: NSObject, @preconcurrency CLLocationMan
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        receive(locations)
+    }
+
+    func receive(_ locations: [CLLocation]) {
         guard let location = locations.last, location.horizontalAccuracy >= 0 else {
-            Task { await ToolDiagnostics.record(
+            record(
                 "apple.location.request.waiting",
                 level: "warning",
                 data: ["reason": "invalid_fix"]
-            ) }
+            )
             return
         }
-        Task { await ToolDiagnostics.record("apple.location.locations.received", data: [
+        record("apple.location.locations.received", data: [
             "horizontal_accuracy_meters": String(location.horizontalAccuracy)
-        ]) }
+        ])
         finish(.success(location))
     }
 
@@ -625,18 +678,18 @@ private final class LocationCoordinator: NSObject, @preconcurrency CLLocationMan
         // kCLErrorLocationUnknown (code 0) is transient: CoreLocation keeps trying,
         // so keep updating instead of failing the request.
         if nsError.domain == kCLErrorDomain, nsError.code == CLError.locationUnknown.rawValue {
-            Task { await ToolDiagnostics.record(
+            record(
                 "apple.location.request.waiting",
                 level: "warning",
                 data: ["reason": "location_unknown_transient"]
-            ) }
+            )
             return
         }
-        Task { await ToolDiagnostics.record(
+        record(
             "apple.location.request.failed",
             level: "error",
             data: ["domain": nsError.domain, "code": String(nsError.code)]
-        ) }
+        )
         finish(.failure(AppleServicesToolError.locationUnavailable))
     }
 }
